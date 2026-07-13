@@ -14,6 +14,7 @@ impl Reg {
         self.0 as usize
     }
 
+    // riscv has special names for registers from x0..x31
     pub const fn abi_name(self) -> &'static str {
         match self.0 {
             0 => "zero",
