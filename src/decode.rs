@@ -56,7 +56,7 @@ fn decode_op(raw: u32) -> Instruction {
     let rs2 = rs2(raw);
     let rd = rd(raw);
 
-    match (funct3(raw), funct7(raw)) {
+    match (funct7(raw), funct3(raw)) {
         (0b0000000, 0b000) => Instruction::Add { rd, rs1, rs2 },
         (0b0100000, 0b000) => Instruction::Sub { rd, rs1, rs2 },
         (0b0000000, 0b001) => Instruction::Sll { rd, rs1, rs2 },
@@ -86,7 +86,7 @@ fn decode_op_w(raw: u32) -> Instruction {
     let rs2 = rs2(raw);
     let rd = rd(raw);
 
-    match (funct3(raw), funct7(raw)) {
+    match (funct7(raw), funct3(raw)) {
         (0b0000000, 0b000) => Instruction::Addw { rd, rs1, rs2 },
         (0b0100000, 0b000) => Instruction::Subw { rd, rs1, rs2 },
         (0b0000000, 0b001) => Instruction::Sllw { rd, rs1, rs2 },
