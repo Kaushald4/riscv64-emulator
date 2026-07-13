@@ -101,5 +101,15 @@ pub enum Instruction {
     Bltu { rs1: Reg, rs2: Reg, imm: i64 },
     Bgeu { rs1: Reg, rs2: Reg, imm: i64 },
 
+    // Type J Jump and link
+    Jal { rd: Reg, imm: i64 },
+
+    // Type I Jump and link register
+    Jalr { rd: Reg, rs1: Reg, imm: i64 },
+
+    // Type U load upper immediate
+    Lui { rd: Reg, imm: i64 },
+    Auipc { rd: Reg, imm: i64 },
+
     Undefined { raw: u32 },
 }

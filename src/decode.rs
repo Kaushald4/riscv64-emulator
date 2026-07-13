@@ -1,7 +1,7 @@
 use crate::{
-    formats::{funct3, funct5, funct7, imm_b, imm_i, opcode, rd, rs1, rs2, shamt5, shamt6, sign_extend},
+    formats::{funct3, funct5, funct7, imm_b, imm_i, imm_j, imm_u, opcode, rd, rs1, rs2, shamt5, shamt6, sign_extend},
     instruction::{self, Instruction},
-    opcode::{OP, OP_ATOMIC, OP_BRANCH, OP_IMM, OP_IMM_W, OP_LOAD, OP_STORE, OP_W},
+    opcode::{OP, OP_ATOMIC, OP_AUIPC, OP_BRANCH, OP_IMM, OP_IMM_W, OP_JAL, OP_JALR, OP_LOAD, OP_LUI, OP_STORE, OP_W},
 };
 
 pub fn decode(raw: u32) -> Instruction {
@@ -14,6 +14,10 @@ pub fn decode(raw: u32) -> Instruction {
         OP_LOAD => decode_load(raw),
         OP_STORE => decode_store(raw),
         OP_BRANCH => decode_branch(raw),
+        OP_JAL => decode_jal(raw),
+        OP_JALR => decode_jalr(raw),
+        OP_LUI => decode_lui(raw),
+        OP_AUIPC => decode_auipc(raw),
         _ => Instruction::Undefined { raw },
     }
 }
@@ -209,4 +213,36 @@ fn decode_branch(raw: u32) -> Instruction {
 
         _ => Instruction::Undefined { raw },
     }
+}
+
+fn decode_jal(raw: u32) -> Instruction {
+    let imm = imm_j(raw);
+    let rd = rd(raw);
+
+    Instruction::Jal { rd, imm }
+}
+
+fn decode_jalr(raw: u32) -> Instruction {
+    let imm = imm_i(raw);
+    let rd = rd(raw);
+    let rs1 = rs1(raw);
+
+    match funct3(raw) {
+        0b000 => Instruction::Jalr { rd, rs1, imm },
+        _ => Instruction::Undefined { raw },
+    }
+}
+
+fn decode_lui(raw: u32) -> Instruction {
+    let imm = imm_u(raw);
+    let rd = rd(raw);
+
+    Instruction::Lui { rd, imm }
+}
+
+fn decode_auipc(raw: u32) -> Instruction {
+    let imm = imm_u(raw);
+    let rd = rd(raw);
+
+    Instruction::Auipc { rd, imm }
 }

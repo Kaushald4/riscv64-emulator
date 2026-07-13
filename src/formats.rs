@@ -41,6 +41,23 @@ pub const fn imm_b(raw: u32) -> i64 {
     sign_extend(imm, 13)
 }
 
+#[inline]
+pub const fn imm_j(raw: u32) -> i64 {
+    let imm20 = (raw >> 31) & 0b1;
+    let imm19_12 = (raw >> 12) & 0b11111111;
+    let imm11 = (raw >> 20) & 0b1;
+    let imm10_1 = (raw >> 21) & 0b1111111111;
+
+    let imm = (imm20 << 20) | (imm19_12 << 12) | (imm11 << 11) | (imm10_1 << 1);
+
+    sign_extend(imm, 21)
+}
+
+#[inline]
+pub const fn imm_u(raw: u32) -> i64 {
+    sign_extend(raw & 0xfffff000, 32)
+}
+
 // for immeidate
 #[inline]
 pub const fn imm_i(raw: u32) -> i64 {
