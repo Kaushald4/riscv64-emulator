@@ -36,7 +36,12 @@ pub const fn imm_i(raw: u32) -> i64 {
 }
 
 #[inline]
-pub const fn shamt(raw: u32) -> u32 {
+pub const fn shamt5(raw: u32) -> u32 {
+    (raw >> 20) & 0b11111
+}
+
+#[inline]
+pub const fn shamt6(raw: u32) -> u32 {
     (raw >> 20) & 0b111111
 }
 
