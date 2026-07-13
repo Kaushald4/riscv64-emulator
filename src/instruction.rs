@@ -12,13 +12,13 @@ pub enum Instruction {
     Slli { rd: Reg, rs1: Reg, shamt: i64 },
     Srli { rd: Reg, rs1: Reg, shamt: i64 },
     Srai { rd: Reg, rs1: Reg, shamt: i64 },
-    // RV64I word instruction
+    // RV64I word instructions
     Addiw { rd: Reg, rs1: Reg, imm: i64 },
     Slliw { rd: Reg, rs1: Reg, shamt: i64 },
     Srliw { rd: Reg, rs1: Reg, shamt: i64 },
     Sraiw { rd: Reg, rs1: Reg, shamt: i64 },
 
-    // Type R  ALU register-register instructions
+    // Type R RV32I ALU register-register instructions
     Add { rd: Reg, rs1: Reg, rs2: Reg },
     Sub { rd: Reg, rs1: Reg, rs2: Reg },
     Sll { rd: Reg, rs1: Reg, rs2: Reg },
@@ -29,7 +29,7 @@ pub enum Instruction {
     Srl { rd: Reg, rs1: Reg, rs2: Reg },
     Or { rd: Reg, rs1: Reg, rs2: Reg },
     And { rd: Reg, rs1: Reg, rs2: Reg },
-    // RV32M standard extension
+    // RV32M  ALU register-register standard extensions
     Mul { rd: Reg, rs1: Reg, rs2: Reg },
     Mulh { rd: Reg, rs1: Reg, rs2: Reg },
     Mulhsu { rd: Reg, rs1: Reg, rs2: Reg },
@@ -38,6 +38,18 @@ pub enum Instruction {
     Divu { rd: Reg, rs1: Reg, rs2: Reg },
     Rem { rd: Reg, rs1: Reg, rs2: Reg },
     Remu { rd: Reg, rs1: Reg, rs2: Reg },
+    // RV64I word instructions
+    Addw { rd: Reg, rs1: Reg, rs2: Reg },
+    Subw { rd: Reg, rs1: Reg, rs2: Reg },
+    Sllw { rd: Reg, rs1: Reg, rs2: Reg },
+    Srlw { rd: Reg, rs1: Reg, rs2: Reg },
+    Sraw { rd: Reg, rs1: Reg, rs2: Reg },
+    // RV64M word multiply/divide instructions
+    Mulw { rd: Reg, rs1: Reg, rs2: Reg },
+    Divw { rd: Reg, rs1: Reg, rs2: Reg },
+    Divuw { rd: Reg, rs1: Reg, rs2: Reg },
+    Remw { rd: Reg, rs1: Reg, rs2: Reg },
+    Remuw { rd: Reg, rs1: Reg, rs2: Reg },
 
     Undefined { raw: u32 },
 }

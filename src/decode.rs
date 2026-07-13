@@ -1,14 +1,15 @@
 use crate::{
     formats::{funct3, funct7, imm_i, opcode, rd, rs1, rs2, shamt},
     instruction::Instruction,
-    opcode::{OP, OP_IMM, OP_IMM_W},
+    opcode::{OP, OP_IMM, OP_IMM_W, OP_W},
 };
 
 pub fn decode(raw: u32) -> Instruction {
     match opcode(raw) {
         OP_IMM => decode_op_imm(raw),
-        OP_IMM_W => decode_op_w(raw),
+        OP_IMM_W => decode_op_imm_w(raw),
         OP => decode_op(raw),
+        OP_W => decode_op_w(raw),
         _ => Instruction::Undefined { raw },
     }
 }
@@ -31,7 +32,7 @@ fn decode_op_imm(raw: u32) -> Instruction {
     }
 }
 
-fn decode_op_w(raw: u32) -> Instruction {
+fn decode_op_imm_w(raw: u32) -> Instruction {
     match funct3(raw) {
         0b000 => Instruction::Addiw { rd: rd(raw), rs1: rs1(raw), imm: imm_i(raw) },
         0b001 => Instruction::Slliw { rd: rd(raw), rs1: rs1(raw), shamt: shamt(raw) },
@@ -65,6 +66,24 @@ fn decode_op(raw: u32) -> Instruction {
         (0b0000001, 0b101) => Instruction::Divu { rd: rd(raw), rs1: rs1(raw), rs2: rs2(raw) },
         (0b0000001, 0b110) => Instruction::Rem { rd: rd(raw), rs1: rs1(raw), rs2: rs2(raw) },
         (0b0000001, 0b111) => Instruction::Remu { rd: rd(raw), rs1: rs1(raw), rs2: rs2(raw) },
+
+        _ => Instruction::Undefined { raw },
+    }
+}
+
+fn decode_op_w(raw: u32) -> Instruction {
+    match (funct3(raw), funct7(raw)) {
+        (0b0000000, 0b000) => Instruction::Addw { rd: rd(raw), rs1: rs1(raw), rs2: rs2(raw) },
+        (0b0100000, 0b000) => Instruction::Subw { rd: rd(raw), rs1: rs1(raw), rs2: rs2(raw) },
+        (0b0000000, 0b001) => Instruction::Sllw { rd: rd(raw), rs1: rs1(raw), rs2: rs2(raw) },
+        (0b0000000, 0b101) => Instruction::Srlw { rd: rd(raw), rs1: rs1(raw), rs2: rs2(raw) },
+        (0b0100000, 0b101) => Instruction::Sraw { rd: rd(raw), rs1: rs1(raw), rs2: rs2(raw) },
+        // RV64M word multiply/divide instruction
+        (0b0000001, 0b000) => Instruction::Mulw { rd: rd(raw), rs1: rs1(raw), rs2: rs2(raw) },
+        (0b0000001, 0b100) => Instruction::Divw { rd: rd(raw), rs1: rs1(raw), rs2: rs2(raw) },
+        (0b0000001, 0b101) => Instruction::Divuw { rd: rd(raw), rs1: rs1(raw), rs2: rs2(raw) },
+        (0b0000001, 0b110) => Instruction::Remw { rd: rd(raw), rs1: rs1(raw), rs2: rs2(raw) },
+        (0b0000001, 0b111) => Instruction::Remuw { rd: rd(raw), rs1: rs1(raw), rs2: rs2(raw) },
 
         _ => Instruction::Undefined { raw },
     }
