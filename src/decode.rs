@@ -1,7 +1,7 @@
 use crate::{
-    formats::{funct3, funct5, funct7, imm_i, opcode, rd, rs1, rs2, shamt5, shamt6, sign_extend},
-    instruction::Instruction,
-    opcode::{OP, OP_ATOMIC, OP_IMM, OP_IMM_W, OP_LOAD, OP_STORE, OP_W},
+    formats::{funct3, funct5, funct7, imm_b, imm_i, opcode, rd, rs1, rs2, shamt5, shamt6, sign_extend},
+    instruction::{self, Instruction},
+    opcode::{OP, OP_ATOMIC, OP_BRANCH, OP_IMM, OP_IMM_W, OP_LOAD, OP_STORE, OP_W},
 };
 
 pub fn decode(raw: u32) -> Instruction {
@@ -13,6 +13,7 @@ pub fn decode(raw: u32) -> Instruction {
         OP_ATOMIC => decode_atomic(raw),
         OP_LOAD => decode_load(raw),
         OP_STORE => decode_store(raw),
+        OP_BRANCH => decode_branch(raw),
         _ => Instruction::Undefined { raw },
     }
 }
@@ -189,6 +190,23 @@ fn decode_store(raw: u32) -> Instruction {
         0b001 => Instruction::Sh { rs2, rs1, imm },
         0b010 => Instruction::Sw { rs2, rs1, imm },
         0b011 => Instruction::Sd { rs2, rs1, imm },
+        _ => Instruction::Undefined { raw },
+    }
+}
+
+fn decode_branch(raw: u32) -> Instruction {
+    let imm = imm_b(raw);
+    let rs1 = rs1(raw);
+    let rs2 = rs2(raw);
+
+    match funct3(raw) {
+        0b000 => Instruction::Beq { rs1, rs2, imm },
+        0b001 => Instruction::Bne { rs1, rs2, imm },
+        0b100 => Instruction::Blt { rs1, rs2, imm },
+        0b101 => Instruction::Bge { rs1, rs2, imm },
+        0b110 => Instruction::Bltu { rs1, rs2, imm },
+        0b111 => Instruction::Bgeu { rs1, rs2, imm },
+
         _ => Instruction::Undefined { raw },
     }
 }

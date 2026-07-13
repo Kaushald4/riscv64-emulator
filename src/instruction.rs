@@ -93,5 +93,13 @@ pub enum Instruction {
     Amominud { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
     Amomaxud { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
 
+    // Type B branch instructions
+    Beq { rs1: Reg, rs2: Reg, imm: i64 },
+    Bne { rs1: Reg, rs2: Reg, imm: i64 },
+    Blt { rs1: Reg, rs2: Reg, imm: i64 },
+    Bge { rs1: Reg, rs2: Reg, imm: i64 },
+    Bltu { rs1: Reg, rs2: Reg, imm: i64 },
+    Bgeu { rs1: Reg, rs2: Reg, imm: i64 },
+
     Undefined { raw: u32 },
 }
