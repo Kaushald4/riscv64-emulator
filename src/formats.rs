@@ -25,6 +25,10 @@ pub const fn rs1(raw: u32) -> Reg {
     Reg::new(raw >> 15)
 }
 
+pub const fn rs2(raw: u32) -> Reg {
+    Reg::new(raw >> 20)
+}
+
 // for immeidate
 #[inline]
 pub const fn imm_i(raw: u32) -> i64 {
