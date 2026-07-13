@@ -39,3 +39,8 @@ pub const fn imm_i(raw: u32) -> i64 {
 pub const fn shamt(raw: u32) -> i64 {
     (((raw as i32) >> 20) & 0b11111) as i64
 }
+
+// atomics
+pub const fn funct5(raw: u32) -> u32 {
+    (raw >> 27) & 0x1f
+}

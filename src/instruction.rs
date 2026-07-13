@@ -51,5 +51,30 @@ pub enum Instruction {
     Remw { rd: Reg, rs1: Reg, rs2: Reg },
     Remuw { rd: Reg, rs1: Reg, rs2: Reg },
 
+    // RV32A atomic instructions
+    Lrw { rd: Reg, rs1: Reg, rl: bool, aq: bool },
+    Scw { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amoswapw { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amoaddw { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amoxorw { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amoandw { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amoorw { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amominw { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amomaxw { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amominuw { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amomaxuw { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    // RV64A atomic instructions
+    Lrd { rd: Reg, rs1: Reg, rl: bool, aq: bool },
+    Scd { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amoswapd { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amoaddd { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amoxord { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amoandd { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amoord { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amomind { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amomaxd { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amominud { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+    Amomaxud { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
+
     Undefined { raw: u32 },
 }
