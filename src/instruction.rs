@@ -86,5 +86,12 @@ pub enum Instruction {
     Lwu { rd: Reg, rs1: Reg, imm: i64 },
     Ld { rd: Reg, rs1: Reg, imm: i64 },
 
+    // S Type RV32I Store instructions
+    Sb { rs2: Reg, rs1: Reg, imm: i64 },
+    Sh { rs2: Reg, rs1: Reg, imm: i64 },
+    Sw { rs2: Reg, rs1: Reg, imm: i64 },
+    // RV64I Store instructions
+    Sd { rs2: Reg, rs1: Reg, imm: i64 },
+
     Undefined { raw: u32 },
 }

@@ -1,7 +1,7 @@
 use crate::{
-    formats::{funct3, funct5, funct7, imm_i, opcode, rd, rs1, rs2, shamt},
+    formats::{funct3, funct5, funct7, imm_i, opcode, rd, rs1, rs2, shamt, sign_extend},
     instruction::Instruction,
-    opcode::{OP, OP_ATOMIC, OP_IMM, OP_IMM_W, OP_LOAD, OP_W},
+    opcode::{OP, OP_ATOMIC, OP_IMM, OP_IMM_W, OP_LOAD, OP_STORE, OP_W},
 };
 
 pub fn decode(raw: u32) -> Instruction {
@@ -12,6 +12,7 @@ pub fn decode(raw: u32) -> Instruction {
         OP_W => decode_op_w(raw),
         OP_ATOMIC => decode_atomic(raw),
         OP_LOAD => decode_load(raw),
+        OP_STORE => decode_store(raw),
         _ => Instruction::Undefined { raw },
     }
 }
@@ -166,6 +167,23 @@ fn decode_load(raw: u32) -> Instruction {
         0b110 => Instruction::Lwu { rd, rs1, imm },
         0b011 => Instruction::Ld { rd, rs1, imm },
 
+        _ => Instruction::Undefined { raw },
+    }
+}
+
+fn decode_store(raw: u32) -> Instruction {
+    let rs1 = rs1(raw);
+    let rs2 = rs2(raw);
+    let imm11_5 = (raw >> 25) & 0b1111111;
+    let imm4 = (raw >> 7) & 0b11111;
+    let imm = sign_extend(((imm11_5 << 5) | imm4) as u32, 12);
+    let funct3 = funct3(raw);
+
+    match funct3 {
+        0b000 => Instruction::Sb { rs2, rs1, imm },
+        0b001 => Instruction::Sh { rs2, rs1, imm },
+        0b010 => Instruction::Sw { rs2, rs1, imm },
+        0b011 => Instruction::Sd { rs2, rs1, imm },
         _ => Instruction::Undefined { raw },
     }
 }

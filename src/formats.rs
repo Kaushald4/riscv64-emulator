@@ -32,7 +32,7 @@ pub const fn rs2(raw: u32) -> Reg {
 // for immeidate
 #[inline]
 pub const fn imm_i(raw: u32) -> i64 {
-    ((raw as i32) >> 20) as i64
+    sign_extend((raw >> 20) & 0b111111111111, 12)
 }
 
 #[inline]
@@ -43,4 +43,10 @@ pub const fn shamt(raw: u32) -> i64 {
 // atomics
 pub const fn funct5(raw: u32) -> u32 {
     (raw >> 27) & 0x1f
+}
+
+#[inline]
+pub const fn sign_extend(value: u32, bits: u32) -> i64 {
+    let shift = 64 - bits;
+    ((value as i64) << shift) >> shift
 }
