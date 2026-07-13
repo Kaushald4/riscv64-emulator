@@ -1,7 +1,7 @@
 use crate::{
     formats::{funct3, funct5, funct7, imm_i, opcode, rd, rs1, rs2, shamt},
     instruction::Instruction,
-    opcode::{OP, OP_ATOMIC, OP_IMM, OP_IMM_W, OP_W},
+    opcode::{OP, OP_ATOMIC, OP_IMM, OP_IMM_W, OP_LOAD, OP_W},
 };
 
 pub fn decode(raw: u32) -> Instruction {
@@ -11,6 +11,7 @@ pub fn decode(raw: u32) -> Instruction {
         OP => decode_op(raw),
         OP_W => decode_op_w(raw),
         OP_ATOMIC => decode_atomic(raw),
+        OP_LOAD => decode_load(raw),
         _ => Instruction::Undefined { raw },
     }
 }
@@ -144,6 +145,26 @@ fn decode_atomic(raw: u32) -> Instruction {
         (0b10100, 0b011) => Instruction::Amomaxd { rd, rs1, rs2, rl, aq },
         (0b11000, 0b011) => Instruction::Amominud { rd, rs1, rs2, rl, aq },
         (0b11100, 0b011) => Instruction::Amomaxud { rd, rs1, rs2, rl, aq },
+
+        _ => Instruction::Undefined { raw },
+    }
+}
+
+fn decode_load(raw: u32) -> Instruction {
+    let rd = rd(raw);
+    let rs1 = rs1(raw);
+    let imm = imm_i(raw);
+    let funct3 = funct3(raw);
+
+    match funct3 {
+        0b000 => Instruction::Lb { rd, rs1, imm },
+        0b001 => Instruction::Lh { rd, rs1, imm },
+        0b010 => Instruction::Lw { rd, rs1, imm },
+        0b100 => Instruction::Lbu { rd, rs1, imm },
+        0b101 => Instruction::Lhu { rd, rs1, imm },
+        // RV64I Load instructions
+        0b110 => Instruction::Lwu { rd, rs1, imm },
+        0b011 => Instruction::Ld { rd, rs1, imm },
 
         _ => Instruction::Undefined { raw },
     }

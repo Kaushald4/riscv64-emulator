@@ -76,5 +76,15 @@ pub enum Instruction {
     Amominud { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
     Amomaxud { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
 
+    // RV32I Load instructions
+    Lb { rd: Reg, rs1: Reg, imm: i64 },
+    Lh { rd: Reg, rs1: Reg, imm: i64 },
+    Lw { rd: Reg, rs1: Reg, imm: i64 },
+    Lbu { rd: Reg, rs1: Reg, imm: i64 },
+    Lhu { rd: Reg, rs1: Reg, imm: i64 },
+    // RV64I Load instructions
+    Lwu { rd: Reg, rs1: Reg, imm: i64 },
+    Ld { rd: Reg, rs1: Reg, imm: i64 },
+
     Undefined { raw: u32 },
 }
