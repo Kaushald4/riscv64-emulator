@@ -9,14 +9,14 @@ pub enum Instruction {
     Xori { rd: Reg, rs1: Reg, imm: i64 },
     Ori { rd: Reg, rs1: Reg, imm: i64 },
     Andi { rd: Reg, rs1: Reg, imm: i64 },
-    Slli { rd: Reg, rs1: Reg, shamt: i64 },
-    Srli { rd: Reg, rs1: Reg, shamt: i64 },
-    Srai { rd: Reg, rs1: Reg, shamt: i64 },
-    // RV64I word instructions
+    Slli { rd: Reg, rs1: Reg, shamt: u32 },
+    Srli { rd: Reg, rs1: Reg, shamt: u32 },
+    Srai { rd: Reg, rs1: Reg, shamt: u32 },
+    // Type I RV64I word immediate instructions
     Addiw { rd: Reg, rs1: Reg, imm: i64 },
-    Slliw { rd: Reg, rs1: Reg, shamt: i64 },
-    Srliw { rd: Reg, rs1: Reg, shamt: i64 },
-    Sraiw { rd: Reg, rs1: Reg, shamt: i64 },
+    Slliw { rd: Reg, rs1: Reg, shamt: u32 },
+    Srliw { rd: Reg, rs1: Reg, shamt: u32 },
+    Sraiw { rd: Reg, rs1: Reg, shamt: u32 },
 
     // Type R RV32I ALU register-register instructions
     Add { rd: Reg, rs1: Reg, rs2: Reg },
@@ -29,7 +29,7 @@ pub enum Instruction {
     Srl { rd: Reg, rs1: Reg, rs2: Reg },
     Or { rd: Reg, rs1: Reg, rs2: Reg },
     And { rd: Reg, rs1: Reg, rs2: Reg },
-    // RV32M  ALU register-register standard extensions
+    // Type R RV32M multiply/divide instructions
     Mul { rd: Reg, rs1: Reg, rs2: Reg },
     Mulh { rd: Reg, rs1: Reg, rs2: Reg },
     Mulhsu { rd: Reg, rs1: Reg, rs2: Reg },
@@ -38,18 +38,35 @@ pub enum Instruction {
     Divu { rd: Reg, rs1: Reg, rs2: Reg },
     Rem { rd: Reg, rs1: Reg, rs2: Reg },
     Remu { rd: Reg, rs1: Reg, rs2: Reg },
-    // RV64I word instructions
+    // Type R RV64I word instructions
     Addw { rd: Reg, rs1: Reg, rs2: Reg },
     Subw { rd: Reg, rs1: Reg, rs2: Reg },
     Sllw { rd: Reg, rs1: Reg, rs2: Reg },
     Srlw { rd: Reg, rs1: Reg, rs2: Reg },
     Sraw { rd: Reg, rs1: Reg, rs2: Reg },
-    // RV64M word multiply/divide instructions
+    // Type R RV64M word multiply/divide instructions
     Mulw { rd: Reg, rs1: Reg, rs2: Reg },
     Divw { rd: Reg, rs1: Reg, rs2: Reg },
     Divuw { rd: Reg, rs1: Reg, rs2: Reg },
     Remw { rd: Reg, rs1: Reg, rs2: Reg },
     Remuw { rd: Reg, rs1: Reg, rs2: Reg },
+
+    // Type I RV32I load instructions
+    Lb { rd: Reg, rs1: Reg, imm: i64 },
+    Lh { rd: Reg, rs1: Reg, imm: i64 },
+    Lw { rd: Reg, rs1: Reg, imm: i64 },
+    Lbu { rd: Reg, rs1: Reg, imm: i64 },
+    Lhu { rd: Reg, rs1: Reg, imm: i64 },
+    // Type I RV64I load instructions
+    Lwu { rd: Reg, rs1: Reg, imm: i64 },
+    Ld { rd: Reg, rs1: Reg, imm: i64 },
+
+    // Type S RV32I store instructions
+    Sb { rs2: Reg, rs1: Reg, imm: i64 },
+    Sh { rs2: Reg, rs1: Reg, imm: i64 },
+    Sw { rs2: Reg, rs1: Reg, imm: i64 },
+    // Type S RV64I store instructions
+    Sd { rs2: Reg, rs1: Reg, imm: i64 },
 
     // RV32A atomic instructions
     Lrw { rd: Reg, rs1: Reg, rl: bool, aq: bool },
@@ -75,23 +92,6 @@ pub enum Instruction {
     Amomaxd { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
     Amominud { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
     Amomaxud { rd: Reg, rs1: Reg, rs2: Reg, rl: bool, aq: bool },
-
-    // RV32I Load instructions
-    Lb { rd: Reg, rs1: Reg, imm: i64 },
-    Lh { rd: Reg, rs1: Reg, imm: i64 },
-    Lw { rd: Reg, rs1: Reg, imm: i64 },
-    Lbu { rd: Reg, rs1: Reg, imm: i64 },
-    Lhu { rd: Reg, rs1: Reg, imm: i64 },
-    // RV64I Load instructions
-    Lwu { rd: Reg, rs1: Reg, imm: i64 },
-    Ld { rd: Reg, rs1: Reg, imm: i64 },
-
-    // S Type RV32I Store instructions
-    Sb { rs2: Reg, rs1: Reg, imm: i64 },
-    Sh { rs2: Reg, rs1: Reg, imm: i64 },
-    Sw { rs2: Reg, rs1: Reg, imm: i64 },
-    // RV64I Store instructions
-    Sd { rs2: Reg, rs1: Reg, imm: i64 },
 
     Undefined { raw: u32 },
 }

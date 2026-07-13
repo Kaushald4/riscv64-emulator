@@ -36,8 +36,8 @@ pub const fn imm_i(raw: u32) -> i64 {
 }
 
 #[inline]
-pub const fn shamt(raw: u32) -> i64 {
-    (((raw as i32) >> 20) & 0b11111) as i64
+pub const fn shamt(raw: u32) -> u32 {
+    (raw >> 20) & 0b111111
 }
 
 // atomics
