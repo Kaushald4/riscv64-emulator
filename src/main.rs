@@ -1,9 +1,11 @@
-use crate::decoder::decode;
-
-mod decoder;
+mod decode;
+mod formats;
 mod instruction;
+mod opcode;
+mod register;
 
 fn main() {
-    let inst = 0x01900193;
-    let decoded = decode(inst);
+    let inst = 0x00908713;
+    let decoded = decode::decode(inst);
+    println!("decoded inst: {:?}", decoded);
 }
