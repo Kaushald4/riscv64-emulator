@@ -1,7 +1,7 @@
 use crate::{
     formats::{funct3, funct5, funct7, imm_b, imm_i, imm_j, imm_u, opcode, rd, rs1, rs2, shamt5, shamt6, sign_extend},
     instruction::{self, Instruction},
-    opcode::{OP, OP_ATOMIC, OP_AUIPC, OP_BRANCH, OP_IMM, OP_IMM_W, OP_JAL, OP_JALR, OP_LOAD, OP_LUI, OP_STORE, OP_W},
+    opcode::{OP, OP_ATOMIC, OP_AUIPC, OP_BRANCH, OP_IMM, OP_IMM_W, OP_JAL, OP_JALR, OP_LOAD, OP_LUI, OP_STORE, OP_SYSTEM, OP_W},
 };
 
 pub fn decode(raw: u32) -> Instruction {
@@ -18,6 +18,7 @@ pub fn decode(raw: u32) -> Instruction {
         OP_JALR => decode_jalr(raw),
         OP_LUI => decode_lui(raw),
         OP_AUIPC => decode_auipc(raw),
+        OP_SYSTEM => decode_system(raw),
         _ => Instruction::Undefined { raw },
     }
 }
@@ -245,4 +246,13 @@ fn decode_auipc(raw: u32) -> Instruction {
     let rd = rd(raw);
 
     Instruction::Auipc { rd, imm }
+}
+
+fn decode_system(raw: u32) -> Instruction {
+    let imm = (raw >> 20) & 0b111111111111;
+    match (funct3(raw), imm) {
+        (0b000, 0) => Instruction::Ecall,
+        (0b000, 1) => Instruction::Ebreak,
+        _ => Instruction::Undefined { raw },
+    }
 }

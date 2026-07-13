@@ -111,5 +111,9 @@ pub enum Instruction {
     Lui { rd: Reg, imm: i64 },
     Auipc { rd: Reg, imm: i64 },
 
+    // System instructions
+    Ecall,
+    Ebreak,
+
     Undefined { raw: u32 },
 }
