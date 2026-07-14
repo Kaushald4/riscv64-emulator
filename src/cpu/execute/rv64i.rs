@@ -179,9 +179,7 @@ pub fn and(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 pub fn addw(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let lhs = cpu.regs.read(rs1) as u32;
     let rhs = cpu.regs.read(rs2) as u32;
-
     let value = lhs.wrapping_add(rhs) as i32 as i64 as u64;
-
     cpu.regs.write(rd, value);
 
     Ok(ExecFlow::Next)
@@ -190,9 +188,7 @@ pub fn addw(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 pub fn subw(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let lhs = cpu.regs.read(rs1) as u32;
     let rhs = cpu.regs.read(rs2) as u32;
-
     let value = lhs.wrapping_sub(rhs) as i32 as i64 as u64;
-
     cpu.regs.write(rd, value);
 
     Ok(ExecFlow::Next)
@@ -201,9 +197,7 @@ pub fn subw(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 pub fn sllw(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let lhs = cpu.regs.read(rs1) as u32;
     let shamt = (cpu.regs.read(rs2) & 0x1f) as u32;
-
     let value = (lhs << shamt) as i32 as i64 as u64;
-
     cpu.regs.write(rd, value);
 
     Ok(ExecFlow::Next)
@@ -212,9 +206,7 @@ pub fn sllw(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 pub fn srlw(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let lhs = cpu.regs.read(rs1) as u32;
     let shamt = (cpu.regs.read(rs2) & 0x1f) as u32;
-
     let value = (lhs >> shamt) as i32 as i64 as u64;
-
     cpu.regs.write(rd, value);
 
     Ok(ExecFlow::Next)
@@ -223,9 +215,7 @@ pub fn srlw(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 pub fn sraw(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let lhs = cpu.regs.read(rs1) as i32;
     let shamt = (cpu.regs.read(rs2) & 0x1f) as u32;
-
     let value = (lhs >> shamt) as i64 as u64;
-
     cpu.regs.write(rd, value);
 
     Ok(ExecFlow::Next)
@@ -250,61 +240,39 @@ pub fn lbu(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
 
 pub fn lh(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
-
-    if addr & 1 != 0 {
-        return Err(Trap::LoadAddressMisaligned);
-    }
-
-    let value = cpu.bus.read16(addr)? as i16 as i64 as u64;
-
-    cpu.regs.write(rd, value);
+    let value = cpu.bus.read16(addr)?;
+    cpu.regs.write(rd, (value as i16 as i64) as u64);
 
     Ok(ExecFlow::Next)
 }
 
 pub fn lhu(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
-
-    let value = cpu.bus.read16(addr)? as u64;
-
-    cpu.regs.write(rd, value);
+    let value = cpu.bus.read16(addr)?;
+    cpu.regs.write(rd, value as u64);
 
     Ok(ExecFlow::Next)
 }
 
 pub fn lw(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
-
-    if addr & 3 != 0 {
-        return Err(Trap::LoadAddressMisaligned);
-    }
-
-    let value = cpu.bus.read32(addr)? as i32 as i64 as u64;
-
-    cpu.regs.write(rd, value);
+    let value = cpu.bus.read32(addr)?;
+    cpu.regs.write(rd, (value as i32 as i64) as u64);
 
     Ok(ExecFlow::Next)
 }
 
 pub fn lwu(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
-
-    let value = cpu.bus.read32(addr)? as u64;
-
-    cpu.regs.write(rd, value);
+    let value = cpu.bus.read32(addr)?;
+    cpu.regs.write(rd, value as u64);
 
     Ok(ExecFlow::Next)
 }
 
 pub fn ld(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
-
-    if addr & 7 != 0 {
-        return Err(Trap::LoadAddressMisaligned);
-    }
-
     let value = cpu.bus.read64(addr)?;
-
     cpu.regs.write(rd, value);
 
     Ok(ExecFlow::Next)
@@ -347,6 +315,10 @@ pub fn jalr(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
     let return_addr = cpu.pc + cpu.current_instruction_length as u64;
 
     let target = cpu.regs.read(rs1).wrapping_add_signed(imm) & !1;
+
+    if target & 1 != 0 {
+        return Err(Trap::InstructionAddressMisaligned(target));
+    }
 
     cpu.regs.write(rd, return_addr);
 

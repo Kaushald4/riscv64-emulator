@@ -33,6 +33,9 @@ fn execute_suite(prefix: &str) {
 
         cpu.pc = elf.entry();
 
+        // address of the "tohost" symbol in this ELF.
+        let tohost = elf.tohost().expect("ELF has no tohost symbol");
+
         let mut instructions = 0usize;
 
         loop {
@@ -40,13 +43,14 @@ fn execute_suite(prefix: &str) {
                 panic!("{} failed after {} instructions\nPC = {:#018x}\n{:?}", name, instructions, cpu.pc, e);
             }
 
-            if let Some(value) = cpu.bus.tohost {
-                let code = value >> 1;
+            // read the current tohost value directly from guest memory.
+            let value = cpu.bus.read32(tohost).unwrap() as u64;
 
-                if code == 1 {
+            if value != 0 {
+                if value == 1 {
                     println!("{name}: PASS");
                 } else {
-                    panic!("{name}: FAIL test {}", code);
+                    panic!("{name}: FAIL test {}", value >> 1);
                 }
 
                 break;

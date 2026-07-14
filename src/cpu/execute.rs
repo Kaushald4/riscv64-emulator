@@ -11,7 +11,6 @@ pub mod rv64u;
 pub mod system;
 
 pub fn execute(decoded: DecodedInstruction, cpu: &mut Cpu) -> ExecResult {
-    println!("{:?}", decoded.instruction);
     match decoded.instruction {
         // ALU Type I
         Instruction::Addi { rd, rs1, imm } => rv64i::addi(cpu, rd, rs1, imm),
@@ -86,6 +85,8 @@ pub fn execute(decoded: DecodedInstruction, cpu: &mut Cpu) -> ExecResult {
         Instruction::FenceI => system::fence_i(cpu),
         Instruction::Ebreak => system::ebreak(cpu),
         Instruction::Ecall => system::ecall(cpu),
+        Instruction::Mret => system::mret(cpu),
+        Instruction::Sret => system::sret(cpu),
 
         Instruction::Undefined { raw } => Err(Trap::IllegalInstruction(raw)),
 

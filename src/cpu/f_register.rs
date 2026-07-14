@@ -14,7 +14,7 @@ impl FReg {
         self.0 as usize
     }
 
-    /// RISC-V floating-point ABI names
+    // RISC-V floating-point ABI names
     pub const fn abi_name(self) -> &'static str {
         match self.0 {
             0 => "ft0",

@@ -1,14 +1,14 @@
 #[derive(Debug)]
 pub enum Trap {
-    InstructionAddressMisaligned,
     InstructionAccessFault,
 
     IllegalInstruction(u32),
 
-    LoadAddressMisaligned,
     LoadAccessFault,
+    LoadAddressMisaligned(u64),
+    StoreAddressMisaligned(u64),
+    InstructionAddressMisaligned(u64),
 
-    StoreAddressMisaligned,
     StoreAccessFault,
 
     Breakpoint,
