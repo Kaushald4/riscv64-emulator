@@ -1,13 +1,13 @@
-use crate::f_register::FReg;
-use crate::register::Reg;
+use crate::cpu::f_register::FReg;
+use crate::cpu::register::Reg;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct DecodedInstruction {
     pub instruction: Instruction,
     pub length: u8,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Instruction {
     // Type I RV32I ALU immediate instructions
     Addi { rd: Reg, rs1: Reg, imm: i64 },

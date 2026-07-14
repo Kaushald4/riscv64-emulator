@@ -1,4 +1,4 @@
-use crate::register::Reg;
+use crate::cpu::register::Reg;
 
 #[inline]
 pub const fn opcode(raw: u32) -> u32 {

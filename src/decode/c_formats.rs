@@ -1,4 +1,4 @@
-use crate::{f_register::FReg, register::Reg};
+use crate::cpu::{f_register::FReg, register::Reg};
 
 // Common
 #[inline]

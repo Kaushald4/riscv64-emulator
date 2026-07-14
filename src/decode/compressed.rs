@@ -1,10 +1,10 @@
 use crate::{
+    cpu::register::Reg,
     decode::c_formats::{
         ca_bit12, ca_funct2, ca_rd_rs1, ca_rs2, cb_funct2, cb_imm, cb_offset, cb_rs1, cb_shamt, ci_addi16sp_imm, ci_frd, ci_imm, ci_ldsp_offset, ci_lui_imm, ci_lwsp_offset, ci_rd, ci_shamt, ciw_nzuimm, ciw_rd, cj_offset, cl_frd, cl_ld_offset, cl_lw_offset, cl_rd, cl_rs1, cr_rd_rs1, cr_rs2, cs_frs2, cs_rs1, cs_rs2, cs_sd_offset, cs_sw_offset,
         css_frs2, css_rs2, css_sdsp_offset, css_swsp_offset, funct3c, quadrant,
     },
     instruction::Instruction,
-    register::Reg,
 };
 
 pub fn decode_compressed(raw: u16) -> Instruction {
