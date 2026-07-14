@@ -1,22 +1,22 @@
-use glasshart_emulator::cpu::{self, register::Reg};
+use glasshart_emulator::{
+    cpu::{self, execute::rv64i, register::Reg},
+    trap::Trap,
+};
 
 use cpu::Cpu;
 
-fn main() {
+fn main() -> Result<(), Trap> {
     let mut cpu = Cpu::new();
 
-    let instruction: u32 = 0x00500093;
+    cpu.bus.write32(0x8000_0000, 0x12345678)?;
 
-    let program = [
-        0x00500093, // addi x1, x0, 5
-        0x00308113, // addi x2, x1, 3
-    ];
+    cpu.regs.write(Reg::new(1), 0x8000_0000);
 
-    for instr in program {
-        cpu.step(instr);
-    }
+    rv64i::lw(&mut cpu, Reg::new(2), Reg::new(1), 0)?;
 
-    println!("PC: {}", cpu.pc);
-    println!("x1: {}", cpu.regs.read(Reg::new(1)));
-    println!("x2: {}", cpu.regs.read(Reg::new(2)));
+    assert_eq!(cpu.regs.read(Reg::new(2)), 0x0000000012345678,);
+
+    println!("LW passed");
+
+    Ok(())
 }
