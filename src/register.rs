@@ -10,6 +10,11 @@ impl Reg {
     }
 
     #[inline]
+    pub const fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+
+    #[inline]
     pub const fn idx(self) -> usize {
         self.0 as usize
     }

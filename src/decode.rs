@@ -1,7 +1,7 @@
 use crate::{
-    formats::{funct3, funct5, funct7, imm_b, imm_i, imm_j, imm_u, opcode, rd, rs1, rs2, shamt5, shamt6, sign_extend},
-    instruction::{self, Instruction},
-    opcode::{OP, OP_ATOMIC, OP_AUIPC, OP_BRANCH, OP_IMM, OP_IMM_W, OP_JAL, OP_JALR, OP_LOAD, OP_LUI, OP_STORE, OP_SYSTEM, OP_W},
+    formats::{fence_fm, fence_pred, fence_succ, funct3, funct5, funct7, imm_b, imm_i, imm_j, imm_u, imm12, opcode, rd, rs1, rs2, shamt5, shamt6, sign_extend, uimm},
+    instruction::Instruction,
+    opcode::{OP, OP_ATOMIC, OP_AUIPC, OP_BRANCH, OP_IMM, OP_IMM_W, OP_JAL, OP_JALR, OP_LOAD, OP_LUI, OP_MISC_MEM, OP_STORE, OP_SYSTEM, OP_W},
 };
 
 pub fn decode(raw: u32) -> Instruction {
@@ -19,6 +19,7 @@ pub fn decode(raw: u32) -> Instruction {
         OP_LUI => decode_lui(raw),
         OP_AUIPC => decode_auipc(raw),
         OP_SYSTEM => decode_system(raw),
+        OP_MISC_MEM => decode_misc_mem(raw),
         _ => Instruction::Undefined { raw },
     }
 }
@@ -249,10 +250,61 @@ fn decode_auipc(raw: u32) -> Instruction {
 }
 
 fn decode_system(raw: u32) -> Instruction {
-    let imm = (raw >> 20) & 0b111111111111;
-    match (funct3(raw), imm) {
-        (0b000, 0) => Instruction::Ecall,
-        (0b000, 1) => Instruction::Ebreak,
+    let funct3 = funct3(raw);
+    let funct7 = funct7(raw);
+    let csr = ((raw >> 20) & 0b111111111111) as u16;
+    let rd = rd(raw);
+    let rs1 = rs1(raw);
+    let uimm = uimm(raw);
+    let imm12 = imm12(raw);
+    let rs2 = rs2(raw);
+
+    match funct3 {
+        0b000 => {
+            // SFENCE.VMA
+            if funct7 == 0b0001001 && rd.is_zero() {
+                return Instruction::SfenceVma { rs1, rs2 };
+            }
+
+            match imm12 {
+                0 => Instruction::Ecall,
+                1 => Instruction::Ebreak,
+                0x102 => Instruction::Sret,
+                0x105 => Instruction::Wfi,
+                0x302 => Instruction::Mret,
+                _ => Instruction::Undefined { raw },
+            }
+        }
+        0b001 => Instruction::Csrrw { rd, rs1, csr },
+        0b010 => Instruction::Csrrs { rd, rs1, csr },
+        0b011 => Instruction::Csrrc { rd, rs1, csr },
+        0b101 => Instruction::Csrrwi { rd, uimm, csr },
+        0b110 => Instruction::Csrrsi { rd, uimm, csr },
+        0b111 => Instruction::Csrrci { rd, uimm, csr },
+
+        _ => Instruction::Undefined { raw },
+    }
+}
+
+fn decode_misc_mem(raw: u32) -> Instruction {
+    let pred = fence_pred(raw);
+    let succ = fence_succ(raw);
+    let fm = fence_fm(raw);
+    let imm12 = imm12(raw);
+    let is_rs1_zero = rs1(raw).is_zero();
+    let is_rd_zero = rd(raw).is_zero();
+
+    match funct3(raw) {
+        0b000 => Instruction::Fence { pred, succ, fm },
+
+        0b001 => {
+            if is_rd_zero && is_rs1_zero && imm12 == 0 {
+                Instruction::FenceI
+            } else {
+                Instruction::Undefined { raw }
+            }
+        }
+
         _ => Instruction::Undefined { raw },
     }
 }

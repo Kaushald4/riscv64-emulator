@@ -1,8 +1,4 @@
-mod decode;
-mod formats;
-mod instruction;
-mod opcode;
-mod register;
+use glasshart_emulator::decode;
 
 fn main() {
     let inst = 0x00208733;

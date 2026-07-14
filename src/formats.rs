@@ -30,6 +30,31 @@ pub const fn rs2(raw: u32) -> Reg {
 }
 
 #[inline]
+pub const fn uimm(raw: u32) -> u8 {
+    ((raw >> 15) & 0b11111) as u8
+}
+
+#[inline]
+pub const fn fence_pred(raw: u32) -> u8 {
+    ((raw >> 24) & 0b1111) as u8
+}
+
+#[inline]
+pub const fn fence_succ(raw: u32) -> u8 {
+    ((raw >> 20) & 0b1111) as u8
+}
+
+#[inline]
+pub const fn fence_fm(raw: u32) -> u8 {
+    ((raw >> 28) & 0b1111) as u8
+}
+
+#[inline]
+pub const fn imm12(raw: u32) -> u32 {
+    (raw >> 20) & 0b111111111111
+}
+
+#[inline]
 pub const fn imm_b(raw: u32) -> i64 {
     let imm12 = (raw >> 31) & 0b1;
     let imm11 = (raw >> 7) & 0b1;

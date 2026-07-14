@@ -114,6 +114,19 @@ pub enum Instruction {
     // System instructions
     Ecall,
     Ebreak,
+    Csrrw { rd: Reg, rs1: Reg, csr: u16 },
+    Csrrs { rd: Reg, rs1: Reg, csr: u16 },
+    Csrrc { rd: Reg, rs1: Reg, csr: u16 },
+    Csrrwi { rd: Reg, uimm: u8, csr: u16 },
+    Csrrsi { rd: Reg, uimm: u8, csr: u16 },
+    Csrrci { rd: Reg, uimm: u8, csr: u16 },
+    Sret,
+    Mret,
+    Wfi,
+    SfenceVma { rs1: Reg, rs2: Reg },
+
+    Fence { pred: u8, succ: u8, fm: u8 },
+    FenceI,
 
     Undefined { raw: u32 },
 }

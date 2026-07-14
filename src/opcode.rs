@@ -11,3 +11,4 @@ pub const OP_JALR: u32 = 0b1100111;
 pub const OP_LUI: u32 = 0b0110111;
 pub const OP_AUIPC: u32 = 0b0010111;
 pub const OP_SYSTEM: u32 = 0b1110011;
+pub const OP_MISC_MEM: u32 = 0b0001111;
