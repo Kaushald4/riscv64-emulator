@@ -1,4 +1,6 @@
+mod c_formats;
 mod compressed;
+mod formats;
 mod rv32_64;
 
 use crate::{

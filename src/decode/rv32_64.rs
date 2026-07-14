@@ -1,5 +1,5 @@
 use crate::{
-    formats::{fence_fm, fence_pred, fence_succ, funct3, funct5, funct7, imm_b, imm_i, imm_j, imm_u, imm12, opcode, rd, rs1, rs2, shamt5, shamt6, sign_extend, uimm},
+    decode::formats::{fence_fm, fence_pred, fence_succ, funct3, funct5, funct7, imm_b, imm_i, imm_j, imm_u, imm12, opcode, rd, rs1, rs2, shamt5, shamt6, sign_extend, uimm},
     instruction::Instruction,
     opcode::{OP, OP_ATOMIC, OP_AUIPC, OP_BRANCH, OP_IMM, OP_IMM_W, OP_JAL, OP_JALR, OP_LOAD, OP_LUI, OP_MISC_MEM, OP_STORE, OP_SYSTEM, OP_W},
 };

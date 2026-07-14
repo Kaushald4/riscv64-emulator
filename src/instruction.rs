@@ -1,3 +1,4 @@
+use crate::f_register::FReg;
 use crate::register::Reg;
 
 #[derive(Debug)]
@@ -133,6 +134,16 @@ pub enum Instruction {
 
     Fence { pred: u8, succ: u8, fm: u8 },
     FenceI,
+
+    // floating point loads
+    Flw { rd: FReg, rs1: Reg, imm: i64 },
+
+    Fld { rd: FReg, rs1: Reg, imm: i64 },
+
+    // floating point stores
+    Fsw { rs1: Reg, rs2: FReg, imm: i64 },
+
+    Fsd { rs1: Reg, rs2: FReg, imm: i64 },
 
     Undefined { raw: u32 },
 }
