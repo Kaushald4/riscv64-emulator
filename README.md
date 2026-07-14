@@ -29,7 +29,7 @@ That's really the point of this project. Not just "an emulator that runs Linux,"
 If you're also learning RISC-V or emulator internals, I'd genuinely love feedback or questions.
 
 ## Features
-- [x] RV64IMA - decoder base integer instruction set
+- [x] RV64IMAC - decoder base integer instruction set
 - [ ] RV64I - base integer instruction set
 - [ ] RV64M - multiply / divide
 - [ ] RV64C - compressed instructions
