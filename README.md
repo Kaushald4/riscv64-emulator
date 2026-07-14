@@ -29,7 +29,7 @@ That's really the point of this project. Not just "an emulator that runs Linux,"
 If you're also learning RISC-V or emulator internals, I'd genuinely love feedback or questions.
 
 ## Features
-
+- [x] RV64IMA - decoder base integer instruction set
 - [ ] RV64I - base integer instruction set
 - [ ] RV64M - multiply / divide
 - [ ] RV64C - compressed instructions
@@ -51,14 +51,15 @@ I'm building this in deliberate, testable phases rather than jumping straight fo
 
 | Phase | Milestone                                           | Status      |
 | :---- | :-------------------------------------------------- | :---------- |
-| 0     | Fetch–decode–execute skeleton                       | Not started |
-| 1     | Pass `riscv-tests` (`rv64ui` / `um` / `uc` / `ua`)  | Not started |
-| 2     | Privilege levels, trap/exception handling, CLINT    | Not started |
-| 3     | UART console, SBI implementation, OpenSBI boot      | Not started |
-| 4     | Sv39 MMU — page table walker, TLB                   | Not started |
-| 5     | RV64F/D floating point (pass `rv64uf` / `ud` tests) | Not started |
-| 6     | PLIC, VirtIO block device, Alpine rootfs boot       | Not started |
-| 7     | WASM build, browser boot                            | Not started |
+| 0     | instruction decoding                                |  started    |
+| 1     | Fetch–decode–execute skeleton                       | Not started |
+| 2     | Pass `riscv-tests` (`rv64ui` / `um` / `uc` / `ua`)  | Not started |
+| 3     | Privilege levels, trap/exception handling, CLINT    | Not started |
+| 4     | UART console, SBI implementation, OpenSBI boot      | Not started |
+| 5     | Sv39 MMU — page table walker, TLB                   | Not started |
+| 6     | RV64F/D floating point (pass `rv64uf` / `ud` tests) | Not started |
+| 7     | PLIC, VirtIO block device, Alpine rootfs boot       | Not started |
+| 8     | WASM build, browser boot                            | Not started |
 
 I'll keep this table updated as phases land - check the commit history or releases for the details behind each one.
 

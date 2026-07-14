@@ -17,7 +17,7 @@ fn decode_all_rv64ui() {
 
         let name = path.file_name().unwrap().to_string_lossy();
 
-        if !name.starts_with("rv64ui-p-") {
+        if !name.starts_with("rv64um-p-") {
             continue;
         }
         if path.extension().is_some() {
