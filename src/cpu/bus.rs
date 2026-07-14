@@ -1,14 +1,18 @@
 use crate::{cpu::memory::Memory, trap::Trap};
 
 pub const RAM_BASE: u64 = 0x8000_0000;
+pub const TOHOST_ADDR: u64 = 0x8000_1000;
+pub const FROMHOST_ADDR: u64 = 0x8000_1008;
 
 pub struct Bus {
     ram: Memory,
+
+    pub tohost: Option<u64>,
 }
 
 impl Bus {
     pub fn new(ram_size: usize) -> Self {
-        Self { ram: Memory::new(ram_size) }
+        Self { ram: Memory::new(ram_size), tohost: None }
     }
 
     #[inline]
@@ -70,6 +74,12 @@ impl Bus {
 
     #[inline]
     pub fn write64(&mut self, addr: u64, value: u64) -> Result<(), Trap> {
+        // for riscv test
+        if addr == TOHOST_ADDR {
+            self.tohost = Some(value);
+            return Ok(());
+        }
+
         let offset = self.ram_offset(addr, Trap::StoreAccessFault)?;
         self.ram.write64(offset, value)
     }
