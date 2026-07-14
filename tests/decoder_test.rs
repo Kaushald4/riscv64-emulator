@@ -33,7 +33,7 @@ fn decode_suite(prefix: &str) {
 
             println!("{:04}  0x{:08x}  {:?}", i, raw, inst);
 
-            if matches!(inst, Instruction::Undefined { .. }) {
+            if matches!(inst.instruction, Instruction::Undefined { .. }) {
                 panic!("{}: instruction #{} (0x{:08x}) failed to decode", name, i, raw);
             }
         }

@@ -1,6 +1,12 @@
 use crate::register::Reg;
 
 #[derive(Debug)]
+pub struct DecodedInstruction {
+    pub instruction: Instruction,
+    pub length: u8,
+}
+
+#[derive(Debug)]
 pub enum Instruction {
     // Type I RV32I ALU immediate instructions
     Addi { rd: Reg, rs1: Reg, imm: i64 },
