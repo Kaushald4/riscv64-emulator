@@ -1,6 +1,17 @@
 use crate::{cpu::PrivilegeMode, trap::Trap};
 use std::collections::HashMap;
 
+const MISA_MXL_RV64: u64 = 2 << 62;
+const MISA_A: u64 = 1 << ('A' as u8 - b'A');
+const MISA_C: u64 = 1 << ('C' as u8 - b'A');
+const MISA_D: u64 = 1 << ('D' as u8 - b'A');
+const MISA_F: u64 = 1 << ('F' as u8 - b'A');
+const MISA_I: u64 = 1 << ('I' as u8 - b'A');
+const MISA_M: u64 = 1 << ('M' as u8 - b'A');
+const MISA_S: u64 = 1 << ('S' as u8 - b'A');
+const MISA_U: u64 = 1 << ('U' as u8 - b'A');
+const MISA: u64 = MISA_MXL_RV64 | MISA_I | MISA_M | MISA_A | MISA_F | MISA_D | MISA_C | MISA_S | MISA_U;
+
 pub const MSTATUS_MIE: u64 = 1 << 3;
 pub const MSTATUS_MPIE: u64 = 1 << 7;
 
@@ -104,7 +115,7 @@ impl Csr {
             mhartid: 0,
 
             mstatus: 0,
-            misa: 0,
+            misa: MISA,
             medeleg: 0,
             mideleg: 0,
             mie: 0,

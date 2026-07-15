@@ -1,22 +1,47 @@
+use std::fs;
+
 use glasshart_emulator::{
-    cpu::{self, execute::rv64i, register::Reg},
+    cpu::{Cpu, register::Reg},
     trap::Trap,
 };
 
-use cpu::Cpu;
+const RAM_BASE: u64 = 0x8000_0000;
+const DTB_ADDR: u64 = 0x87F0_0000;
 
 fn main() -> Result<(), Trap> {
     let mut cpu = Cpu::new();
 
-    cpu.bus.write32(0x8000_0000, 0x12345678)?;
+    let firmware = fs::read("firmware/fw_jump.bin").expect("failed to read firmware/fw_jump.bin");
 
-    cpu.regs.write(Reg::new(1), 0x8000_0000);
+    for (i, byte) in firmware.iter().enumerate() {
+        let addr = RAM_BASE + i as u64;
 
-    rv64i::lw(&mut cpu, Reg::new(2), Reg::new(1), 0)?;
+        if let Err(e) = cpu.bus.write8(addr, *byte) {
+            println!("Failed at address {:#018x}", addr);
+            return Err(e);
+        }
+    }
 
-    assert_eq!(cpu.regs.read(Reg::new(2)), 0x0000000012345678,);
+    let dtb = fs::read("firmware/virt.dtb").expect("failed to read firmware/virt.dtb");
 
-    println!("LW passed");
+    for (i, byte) in dtb.iter().enumerate() {
+        if let Err(e) = cpu.bus.write8(DTB_ADDR + i as u64, *byte) {
+            println!("Failed at address {:#018x}", DTB_ADDR + i as u64);
+            return Err(e);
+        };
+    }
 
-    Ok(())
+    cpu.pc = RAM_BASE;
+
+    // a0 = hartid
+    cpu.regs.write(Reg::new(10), 0);
+
+    // a1 = DTB address
+    cpu.regs.write(Reg::new(11), DTB_ADDR);
+
+    println!("Booting OpenSBI...");
+
+    loop {
+        cpu.step()?;
+    }
 }

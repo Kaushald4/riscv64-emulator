@@ -1,4 +1,12 @@
-use crate::{cpu::memory::Memory, trap::Trap};
+use crate::{
+    cpu::memory::Memory,
+    devices::{
+        clint::{CLINT_BASE, CLINT_SIZE, Clint},
+        plic::{PLIC_BASE, PLIC_SIZE, Plic},
+        uart::{UART_BASE, UART_SIZE, Uart},
+    },
+    trap::Trap,
+};
 
 pub const RAM_BASE: u64 = 0x8000_0000;
 
@@ -11,6 +19,9 @@ pub enum MisalignedAccess {
 pub struct Bus {
     ram: Memory,
     misaligned: MisalignedAccess,
+    pub clint: Clint,
+    pub uart: Uart,
+    pub plic: Plic,
 }
 
 impl Bus {
@@ -18,6 +29,9 @@ impl Bus {
         Self {
             ram: Memory::new(ram_size),
             misaligned: MisalignedAccess::Emulate,
+            clint: Clint::new(),
+            uart: Uart::new(),
+            plic: Plic::new(),
         }
     }
 
@@ -39,12 +53,32 @@ impl Bus {
     // reads
     #[inline]
     pub fn read8(&self, addr: u64) -> Result<u8, Trap> {
+        if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
+            return self.clint.read8(addr);
+        }
+        if (UART_BASE..UART_BASE + UART_SIZE).contains(&addr) {
+            return self.uart.read8(addr);
+        }
+        if (PLIC_BASE..PLIC_BASE + PLIC_SIZE).contains(&addr) {
+            return self.plic.read8(addr);
+        }
+
         let offset = self.ram_offset(addr, Trap::LoadAccessFault)?;
         self.ram.read8(offset)
     }
 
     #[inline]
     pub fn read16(&self, addr: u64) -> Result<u16, Trap> {
+        if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
+            return self.clint.read16(addr);
+        }
+        if (UART_BASE..UART_BASE + UART_SIZE).contains(&addr) {
+            return self.uart.read16(addr);
+        }
+        if (PLIC_BASE..PLIC_BASE + PLIC_SIZE).contains(&addr) {
+            return self.plic.read16(addr);
+        }
+
         match self.misaligned {
             MisalignedAccess::Trap => {
                 if addr & 1 != 0 {
@@ -68,6 +102,16 @@ impl Bus {
 
     #[inline]
     pub fn read32(&self, addr: u64) -> Result<u32, Trap> {
+        if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
+            return self.clint.read32(addr);
+        }
+        if (UART_BASE..UART_BASE + UART_SIZE).contains(&addr) {
+            return self.uart.read32(addr);
+        }
+        if (PLIC_BASE..PLIC_BASE + PLIC_SIZE).contains(&addr) {
+            return self.plic.read32(addr);
+        }
+
         match self.misaligned {
             MisalignedAccess::Trap => {
                 if addr & 3 != 0 {
@@ -91,6 +135,16 @@ impl Bus {
 
     #[inline]
     pub fn read64(&self, addr: u64) -> Result<u64, Trap> {
+        if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
+            return self.clint.read64(addr);
+        }
+        if (UART_BASE..UART_BASE + UART_SIZE).contains(&addr) {
+            return self.uart.read64(addr);
+        }
+        if (PLIC_BASE..PLIC_BASE + PLIC_SIZE).contains(&addr) {
+            return self.plic.read64(addr);
+        }
+
         match self.misaligned {
             MisalignedAccess::Trap => {
                 if addr & 7 != 0 {
@@ -115,12 +169,32 @@ impl Bus {
     // writes
     #[inline]
     pub fn write8(&mut self, addr: u64, value: u8) -> Result<(), Trap> {
+        if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
+            return self.clint.write8(addr, value);
+        }
+        if (UART_BASE..UART_BASE + UART_SIZE).contains(&addr) {
+            return self.uart.write8(addr, value);
+        }
+        if (PLIC_BASE..PLIC_BASE + PLIC_SIZE).contains(&addr) {
+            return self.plic.write8(addr, value);
+        }
+
         let offset = self.ram_offset(addr, Trap::StoreAccessFault)?;
         self.ram.write8(offset, value)
     }
 
     #[inline]
     pub fn write16(&mut self, addr: u64, value: u16) -> Result<(), Trap> {
+        if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
+            return self.clint.write16(addr, value);
+        }
+        if (UART_BASE..UART_BASE + UART_SIZE).contains(&addr) {
+            return self.uart.write16(addr, value);
+        }
+        if (PLIC_BASE..PLIC_BASE + PLIC_SIZE).contains(&addr) {
+            return self.plic.write16(addr, value);
+        }
+
         match self.misaligned {
             MisalignedAccess::Trap => {
                 if addr & 1 != 0 {
@@ -144,6 +218,16 @@ impl Bus {
 
     #[inline]
     pub fn write32(&mut self, addr: u64, value: u32) -> Result<(), Trap> {
+        if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
+            return self.clint.write32(addr, value);
+        }
+        if (UART_BASE..UART_BASE + UART_SIZE).contains(&addr) {
+            return self.uart.write32(addr, value);
+        }
+        if (PLIC_BASE..PLIC_BASE + PLIC_SIZE).contains(&addr) {
+            return self.plic.write32(addr, value);
+        }
+
         match self.misaligned {
             MisalignedAccess::Trap => {
                 if addr & 3 != 0 {
@@ -167,6 +251,16 @@ impl Bus {
 
     #[inline]
     pub fn write64(&mut self, addr: u64, value: u64) -> Result<(), Trap> {
+        if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
+            return self.clint.write64(addr, value);
+        }
+        if (UART_BASE..UART_BASE + UART_SIZE).contains(&addr) {
+            return self.uart.write64(addr, value);
+        }
+        if (PLIC_BASE..PLIC_BASE + PLIC_SIZE).contains(&addr) {
+            return self.plic.write64(addr, value);
+        }
+
         match self.misaligned {
             MisalignedAccess::Trap => {
                 if addr & 7 != 0 {

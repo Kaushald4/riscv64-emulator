@@ -73,11 +73,18 @@ impl Cpu {
     }
 
     pub fn step(&mut self) -> Result<(), Trap> {
+        self.bus.clint.tick();
+
         if let Some(cause) = self.pending_interrupt() {
             self.handle_interrupt(cause)?;
             return Ok(());
         }
         let raw = self.fetch()?;
+
+        // #[cfg(debug_assertions)]
+        // if self.pc >= 0x8001_B400 && self.pc <= 0x8001_B500 {
+        //     println!("{:#018x}: {:#010x}", self.pc, raw);
+        // }
 
         let decoded = decode(raw);
 

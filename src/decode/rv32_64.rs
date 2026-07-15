@@ -1,6 +1,6 @@
 use crate::{
     decode::{
-        formats::{fence_fm, fence_pred, fence_succ, funct3, funct5, funct7, imm_b, imm_i, imm_j, imm_u, imm12, opcode, rd, rs1, rs2, shamt5, shamt6, sign_extend, uimm},
+        formats::{fence_fm, fence_pred, fence_succ, funct3, funct5, funct6, funct7, imm_b, imm_i, imm_j, imm_u, imm12, opcode, rd, rs1, rs2, shamt5, shamt6, sign_extend, uimm},
         rv64fd::{self, decode_madd, decode_msub, decode_nmadd, decode_nmsub},
     },
     instruction::Instruction,
@@ -49,10 +49,14 @@ fn decode_op_imm(raw: u32) -> Instruction {
         0b100 => Instruction::Xori { rd, rs1, imm },
         0b110 => Instruction::Ori { rd, rs1, imm },
         0b111 => Instruction::Andi { rd, rs1, imm },
-        0b001 => Instruction::Slli { rd, rs1, shamt },
-        0b101 => match funct7(raw) {
-            0b0000000 => Instruction::Srli { rd, rs1, shamt },
-            0b0100000 => Instruction::Srai { rd, rs1, shamt },
+        0b001 => match funct6(raw) {
+            0b000000 => Instruction::Slli { rd, rs1, shamt },
+            _ => Instruction::Undefined { raw },
+        },
+
+        0b101 => match funct6(raw) {
+            0b000000 => Instruction::Srli { rd, rs1, shamt },
+            0b010000 => Instruction::Srai { rd, rs1, shamt },
             _ => Instruction::Undefined { raw },
         },
         _ => Instruction::Undefined { raw },

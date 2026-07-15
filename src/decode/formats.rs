@@ -99,6 +99,11 @@ pub const fn shamt6(raw: u32) -> u32 {
     (raw >> 20) & 0b111111
 }
 
+#[inline]
+pub fn funct6(raw: u32) -> u32 {
+    (raw >> 26) & 0b11_1111
+}
+
 // atomics
 pub const fn funct5(raw: u32) -> u32 {
     (raw >> 27) & 0x1f
