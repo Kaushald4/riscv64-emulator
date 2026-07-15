@@ -11,6 +11,9 @@ A 64-bit RISC-V emulator, written from scratch in Rust targeting RV64IMACFD, wit
 
 ---
 
+## Booted OpenSBI firmware
+![opensbiboot](./screenshots/opensbi.jpg)
+
 ## Motivation behind taking this challenge
 
 When I first came across [webvm.io](https://webvm.io/), I was fascinated how they have managed to get Linux running entirely in a web browser. At that time I had no idea how that was even possible, or how all the pieces fit together to make it work.
@@ -41,7 +44,7 @@ If you're also learning RISC-V or emulator internals, I'd genuinely love feedbac
 - [X] UART (NS16550A) - serial console
 - [X] SBI - Supervisor Binary Interface, OpenSBI boot support
 - [X] Sv39 virtual memory - 3-level page table walker
-- [] TLB (Caching)
+- [ ] TLB (Caching)
 - [ ] VirtIO block device
 - [ ] Boots a minimal Linux (Alpine) rootfs
 - [ ] WebAssembly build target - Linux, in a browser tab
