@@ -36,11 +36,12 @@ If you're also learning RISC-V or emulator internals, I'd genuinely love feedbac
 - [X] RV64A - atomics
 - [X] RV64F/D - hardware floating point (single and double precision)
 - [X] Privilege levels (M/S/U) and trap handling
-- [ ] CLINT - timer and software interrupts
-- [ ] PLIC - platform-level interrupt controller
-- [ ] UART (NS16550A) - serial console
-- [ ] SBI - Supervisor Binary Interface, OpenSBI boot support
-- [ ] Sv39 virtual memory - 3-level page table walker, TLB
+- [X] CLINT - timer and software interrupts
+- [X] PLIC - platform-level interrupt controller
+- [X] UART (NS16550A) - serial console
+- [X] SBI - Supervisor Binary Interface, OpenSBI boot support
+- [X] Sv39 virtual memory - 3-level page table walker
+- [] TLB (Caching)
 - [ ] VirtIO block device
 - [ ] Boots a minimal Linux (Alpine) rootfs
 - [ ] WebAssembly build target - Linux, in a browser tab
@@ -54,10 +55,10 @@ I'm building this in deliberate, testable phases rather than jumping straight fo
 | 0     | instruction decoding                                |  Done       |
 | 1     | Fetch–decode–execute skeleton                       |  Done       |
 | 2     | Pass `riscv-tests` (`rv64ui` / `um` / `uc` / `ua`)  |  Done       |
-| 3     | Privilege levels, trap/exception handling, CLINT    |  started    |
-| 4     | UART console, SBI implementation, OpenSBI boot      | Not started |
-| 5     | Sv39 MMU — page table walker, TLB                   | Not started |
-| 6     | RV64F/D floating point (pass `rv64uf` / `ud` tests) | Not started |
+| 3     | Privilege levels, trap/exception handling, CLINT    |  Done       |
+| 4     | UART console, SBI implementation, OpenSBI boot      |  Done       |
+| 5     | RV64F/D floating point (pass `rv64uf` / `ud` tests) |  Done       |
+| 6     | Sv39 MMU — page table walker, TLB                   |  Started    |
 | 7     | PLIC, VirtIO block device, Alpine rootfs boot       | Not started |
 | 8     | WASM build, browser boot                            | Not started |
 
