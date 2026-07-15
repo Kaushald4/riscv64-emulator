@@ -1,7 +1,9 @@
 mod c_formats;
 mod compressed;
+mod f_formats;
 mod formats;
 mod rv32_64;
+mod rv64f;
 
 use crate::{
     decode::{compressed::decode_compressed, rv32_64::decode_normal},

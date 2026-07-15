@@ -1,12 +1,16 @@
 use std::fmt;
 
+const FREG_ABI_NAMES: [&str; 32] = [
+    "ft0", "ft1", "ft2", "ft3", "ft4", "ft5", "ft6", "ft7", "fs0", "fs1", "fa0", "fa1", "fa2", "fa3", "fa4", "fa5", "fa6", "fa7", "fs2", "fs3", "fs4", "fs5", "fs6", "fs7", "fs8", "fs9", "fs10", "fs11", "ft8", "ft9", "ft10", "ft11",
+];
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct FReg(u8);
 
 impl FReg {
     #[inline]
     pub const fn new(bits: u32) -> Self {
-        FReg((bits & 0b11111) as u8)
+        Self((bits & 0b1_1111) as u8)
     }
 
     #[inline]
@@ -14,70 +18,82 @@ impl FReg {
         self.0 as usize
     }
 
-    // RISC-V floating-point ABI names
+    #[inline]
     pub const fn abi_name(self) -> &'static str {
-        match self.0 {
-            0 => "ft0",
-            1 => "ft1",
-            2 => "ft2",
-            3 => "ft3",
-            4 => "ft4",
-            5 => "ft5",
-            6 => "ft6",
-            7 => "ft7",
-            8 => "fs0",
-            9 => "fs1",
-            10 => "fa0",
-            11 => "fa1",
-            12 => "fa2",
-            13 => "fa3",
-            14 => "fa4",
-            15 => "fa5",
-            16 => "fa6",
-            17 => "fa7",
-            18 => "fs2",
-            19 => "fs3",
-            20 => "fs4",
-            21 => "fs5",
-            22 => "fs6",
-            23 => "fs7",
-            24 => "fs8",
-            25 => "fs9",
-            26 => "fs10",
-            27 => "fs11",
-            28 => "ft8",
-            29 => "ft9",
-            30 => "ft10",
-            31 => "ft11",
-            _ => unreachable!(),
-        }
+        FREG_ABI_NAMES[self.0 as usize]
     }
 }
 
 pub struct FRegister {
-    f: [u64; 32],
+    regs: [u64; 32],
 }
 
 impl FRegister {
+    /// upper 32 bits used for NaN-boxing RV32F values on RV64.
+    const NAN_BOX_UPPER: u64 = 0xffff_ffff_0000_0000;
+
+    /// canonical quiet NaN (single precision).
+    const CANONICAL_NAN_F32: u32 = 0x7fc0_0000;
+
     pub fn new() -> Self {
-        Self { f: [0; 32] }
+        Self { regs: [0; 32] }
+    }
+
+    // raw register access
+    #[inline]
+    pub fn read_bits(&self, reg: FReg) -> u64 {
+        self.regs[reg.idx()]
     }
 
     #[inline]
-    pub fn read(&self, r: FReg) -> u64 {
-        self.f[r.idx()]
+    pub fn write_bits(&mut self, reg: FReg, bits: u64) {
+        self.regs[reg.idx()] = bits;
+    }
+
+    // RV64F (Single Precision)
+    #[inline]
+    pub fn read_f32_bits(&self, reg: FReg) -> u32 {
+        let value = self.regs[reg.idx()];
+
+        if (value >> 32) == 0xffff_ffff { value as u32 } else { Self::CANONICAL_NAN_F32 }
     }
 
     #[inline]
-    pub fn write(&mut self, r: FReg, val: u64) {
-        self.f[r.idx()] = val;
+    pub fn write_f32_bits(&mut self, reg: FReg, bits: u32) {
+        self.regs[reg.idx()] = Self::NAN_BOX_UPPER | (bits as u64);
     }
 
+    #[inline]
+    pub fn is_nan_boxed(&self, reg: FReg) -> bool {
+        (self.regs[reg.idx()] >> 32) == 0xffff_ffff
+    }
+
+    #[inline]
+    pub fn read_f32_raw_bits(&self, reg: FReg) -> u32 {
+        self.read_bits(reg) as u32
+    }
+
+    // RV64D (Double Precision)
+    #[inline]
+    pub fn read_f64_bits(&self, reg: FReg) -> u64 {
+        self.regs[reg.idx()]
+    }
+
+    #[inline]
+    pub fn write_f64_bits(&mut self, reg: FReg, bits: u64) {
+        self.regs[reg.idx()] = bits;
+    }
+
+    // for debug
     pub fn dump(&self) {
+        const COLS: usize = 4;
+
         for i in 0..32 {
-            let r = FReg::new(i);
-            println!("{:<5}=0x{:016x}", r.abi_name(), self.f[r.idx()]);
-            if i % 4 == 3 {
+            let reg = FReg::new(i);
+
+            print!("{:<5}=0x{:016x}  ", reg.abi_name(), self.regs[reg.idx()]);
+
+            if (i as usize + 1) % COLS == 0 {
                 println!();
             }
         }

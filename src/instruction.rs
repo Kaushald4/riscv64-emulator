@@ -135,15 +135,41 @@ pub enum Instruction {
     Fence { pred: u8, succ: u8, fm: u8 },
     FenceI,
 
+    // Floating point f signle precision
     // floating point loads
     Flw { rd: FReg, rs1: Reg, imm: i64 },
-
     Fld { rd: FReg, rs1: Reg, imm: i64 },
-
     // floating point stores
     Fsw { rs1: Reg, rs2: FReg, imm: i64 },
-
     Fsd { rs1: Reg, rs2: FReg, imm: i64 },
+    FmvWX { rd: FReg, rs1: Reg },
+    FmvXW { rd: Reg, rs1: FReg },
+    FaddS { rd: FReg, rs1: FReg, rs2: FReg, rm: u8 },
+    FsubS { rd: FReg, rs1: FReg, rs2: FReg, rm: u8 },
+    FmulS { rd: FReg, rs1: FReg, rs2: FReg, rm: u8 },
+    FdivS { rd: FReg, rs1: FReg, rs2: FReg, rm: u8 },
+    FsqrtS { rd: FReg, rs1: FReg, rm: u8 },
+    FsgnjS { rd: FReg, rs1: FReg, rs2: FReg },
+    FsgnjnS { rd: FReg, rs1: FReg, rs2: FReg },
+    FsgnjxS { rd: FReg, rs1: FReg, rs2: FReg },
+    FminS { rd: FReg, rs1: FReg, rs2: FReg },
+    FmaxS { rd: FReg, rs1: FReg, rs2: FReg },
+    FeqS { rd: Reg, rs1: FReg, rs2: FReg },
+    FltS { rd: Reg, rs1: FReg, rs2: FReg },
+    FleS { rd: Reg, rs1: FReg, rs2: FReg },
+    FcvtWS { rd: Reg, rs1: FReg, rm: u8 },
+    FcvtWUS { rd: Reg, rs1: FReg, rm: u8 },
+    FcvtLS { rd: Reg, rs1: FReg, rm: u8 },
+    FcvtLUS { rd: Reg, rs1: FReg, rm: u8 },
+    FcvtSW { rd: FReg, rs1: Reg, rm: u8 },
+    FcvtSWU { rd: FReg, rs1: Reg, rm: u8 },
+    FcvtSL { rd: FReg, rs1: Reg, rm: u8 },
+    FcvtSLU { rd: FReg, rs1: Reg, rm: u8 },
+    FclassS { rd: Reg, rs1: FReg },
+    FmaddS { rd: FReg, rs1: FReg, rs2: FReg, rs3: FReg, rm: u8 },
+    FmsubS { rd: FReg, rs1: FReg, rs2: FReg, rs3: FReg, rm: u8 },
+    FnmsubS { rd: FReg, rs1: FReg, rs2: FReg, rs3: FReg, rm: u8 },
+    FnmaddS { rd: FReg, rs1: FReg, rs2: FReg, rs3: FReg, rm: u8 },
 
     Undefined { raw: u32 },
 }

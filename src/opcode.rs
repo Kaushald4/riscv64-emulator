@@ -12,3 +12,11 @@ pub const OP_LUI: u32 = 0b0110111;
 pub const OP_AUIPC: u32 = 0b0010111;
 pub const OP_SYSTEM: u32 = 0b1110011;
 pub const OP_MISC_MEM: u32 = 0b0001111;
+// floats
+pub const OP_LOAD_FP: u32 = 0b0000111;
+pub const OP_STORE_FP: u32 = 0b0100111;
+pub const OP_FP: u32 = 0b1010011;
+pub const OPCODE_FMADD: u32 = 0b1000011;
+pub const OPCODE_FMSUB: u32 = 0b1000111;
+pub const OPCODE_FNMSUB: u32 = 0b1001011;
+pub const OPCODE_FNMADD: u32 = 0b1001111;

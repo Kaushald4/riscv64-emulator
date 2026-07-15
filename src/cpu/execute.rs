@@ -7,6 +7,7 @@ use crate::{
 pub mod csr_execute;
 pub mod helper;
 pub mod rv64a;
+pub mod rv64f;
 pub mod rv64i;
 pub mod rv64m;
 pub mod rv64u;
@@ -128,6 +129,10 @@ pub fn execute(decoded: DecodedInstruction, cpu: &mut Cpu) -> ExecResult {
         Instruction::Amominud { rd, rs1, rs2, rl: _rl, aq: _aq } => rv64a::amominu_d(cpu, rd, rs1, rs2),
         Instruction::Amomaxuw { rd, rs1, rs2, rl: _rl, aq: _aq } => rv64a::amomaxu_w(cpu, rd, rs1, rs2),
         Instruction::Amomaxud { rd, rs1, rs2, rl: _rl, aq: _aq } => rv64a::amomaxu_d(cpu, rd, rs1, rs2),
+
+        // F extension
+        Instruction::Flw { rd, rs1, imm } => rv64f::flw(cpu, rd, rs1, imm),
+        Instruction::Fsw { rs1, rs2, imm } => rv64f::fsw(cpu, rs1, rs2, imm),
 
         Instruction::Undefined { raw } => Err(Trap::IllegalInstruction(raw)),
 
