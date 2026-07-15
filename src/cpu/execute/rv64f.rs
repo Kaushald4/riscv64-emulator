@@ -20,7 +20,7 @@ pub fn flw(cpu: &mut Cpu, rd: FReg, rs1: Reg, imm: i64) -> ExecResult {
 pub fn fsw(cpu: &mut Cpu, rs1: Reg, rs2: FReg, imm: i64) -> ExecResult {
     let addr = cpu.regs.read(rs1).wrapping_add_signed(imm);
 
-    let bits = cpu.f_regs.read_f32_bits(rs2);
+    let bits = cpu.f_regs.read_f32_raw_bits(rs2);
 
     cpu.bus.write32(addr, bits)?;
 
@@ -44,8 +44,8 @@ pub fn fmv_x_w(cpu: &mut Cpu, rd: Reg, rs1: FReg) -> ExecResult {
 
 // sign injection
 pub fn fsgnj_s(cpu: &mut Cpu, rd: FReg, rs1: FReg, rs2: FReg) -> ExecResult {
-    let a = cpu.f_regs.read_f32_raw_bits(rs1);
-    let b = cpu.f_regs.read_f32_raw_bits(rs2);
+    let a = cpu.f_regs.read_f32_bits(rs1);
+    let b = cpu.f_regs.read_f32_bits(rs2);
 
     let result = (a & 0x7fff_ffff) | (b & 0x8000_0000);
 
@@ -53,9 +53,10 @@ pub fn fsgnj_s(cpu: &mut Cpu, rd: FReg, rs1: FReg, rs2: FReg) -> ExecResult {
 
     Ok(ExecFlow::Next)
 }
+
 pub fn fsgnjn_s(cpu: &mut Cpu, rd: FReg, rs1: FReg, rs2: FReg) -> ExecResult {
-    let a = cpu.f_regs.read_f32_raw_bits(rs1);
-    let b = cpu.f_regs.read_f32_raw_bits(rs2);
+    let a = cpu.f_regs.read_f32_bits(rs1);
+    let b = cpu.f_regs.read_f32_bits(rs2);
 
     let result = (a & 0x7fff_ffff) | ((!b) & 0x8000_0000);
 
@@ -63,12 +64,12 @@ pub fn fsgnjn_s(cpu: &mut Cpu, rd: FReg, rs1: FReg, rs2: FReg) -> ExecResult {
 
     Ok(ExecFlow::Next)
 }
-pub fn fsgnjx_s(cpu: &mut Cpu, rd: FReg, rs1: FReg, rs2: FReg) -> ExecResult {
-    let a = cpu.f_regs.read_f32_raw_bits(rs1);
-    let b = cpu.f_regs.read_f32_raw_bits(rs2);
 
-    let sign = (a ^ b) & 0x8000_0000;
-    let result = (a & 0x7fff_ffff) | sign;
+pub fn fsgnjx_s(cpu: &mut Cpu, rd: FReg, rs1: FReg, rs2: FReg) -> ExecResult {
+    let a = cpu.f_regs.read_f32_bits(rs1);
+    let b = cpu.f_regs.read_f32_bits(rs2);
+
+    let result = (a & 0x7fff_ffff) | ((a ^ b) & 0x8000_0000);
 
     cpu.f_regs.write_f32_bits(rd, result);
 
@@ -303,10 +304,7 @@ pub fn fcvt_w_s(cpu: &mut Cpu, rd: Reg, rs1: FReg, rm: u8) -> ExecResult {
     let bits = cpu.f_regs.read_f32_bits(rs1);
     let src = F32::from_bits(bits);
 
-    // NaN must clamp to the positive max regardless of its sign bit.
-    let negative = !src.is_nan() && (bits & 0x8000_0000) != 0;
-
-    let value = rv_fcvt_i32(src.to_i32(rm, true), negative);
+    let value = rv_fcvt_i32(src.to_i32(rm, true), src.is_nan(), (bits & 0x8000_0000) != 0);
 
     cpu.regs.write(rd, value as i64 as u64);
 
@@ -323,10 +321,7 @@ pub fn fcvt_wu_s(cpu: &mut Cpu, rd: Reg, rs1: FReg, rm: u8) -> ExecResult {
     let bits = cpu.f_regs.read_f32_bits(rs1);
     let src = F32::from_bits(bits);
 
-    // NaN must clamp to the positive max regardless of its sign bit.
-    let negative = !src.is_nan() && (bits & 0x8000_0000) != 0;
-
-    let value = rv_fcvt_u32(src.to_u32(rm, true), negative);
+    let value = rv_fcvt_u32(src.to_u32(rm, true), src.is_nan(), (bits & 0x8000_0000) != 0);
 
     cpu.regs.write(rd, (value as i32 as i64) as u64);
 
@@ -334,6 +329,7 @@ pub fn fcvt_wu_s(cpu: &mut Cpu, rd: Reg, rs1: FReg, rm: u8) -> ExecResult {
 
     Ok(ExecFlow::Next)
 }
+
 pub fn fcvt_l_s(cpu: &mut Cpu, rd: Reg, rs1: FReg, rm: u8) -> ExecResult {
     clear_fflags();
 
@@ -342,10 +338,7 @@ pub fn fcvt_l_s(cpu: &mut Cpu, rd: Reg, rs1: FReg, rm: u8) -> ExecResult {
     let bits = cpu.f_regs.read_f32_bits(rs1);
     let src = F32::from_bits(bits);
 
-    // NaN must clamp to the positive max regardless of its sign bit.
-    let negative = !src.is_nan() && (bits & 0x8000_0000) != 0;
-
-    let value = rv_fcvt_i64(src.to_i64(rm, true), negative);
+    let value = rv_fcvt_i64(src.to_i64(rm, true), src.is_nan(), (bits & 0x8000_0000) != 0);
 
     cpu.regs.write(rd, value as u64);
 
@@ -353,6 +346,7 @@ pub fn fcvt_l_s(cpu: &mut Cpu, rd: Reg, rs1: FReg, rm: u8) -> ExecResult {
 
     Ok(ExecFlow::Next)
 }
+
 pub fn fcvt_lu_s(cpu: &mut Cpu, rd: Reg, rs1: FReg, rm: u8) -> ExecResult {
     clear_fflags();
 
@@ -361,10 +355,7 @@ pub fn fcvt_lu_s(cpu: &mut Cpu, rd: Reg, rs1: FReg, rm: u8) -> ExecResult {
     let bits = cpu.f_regs.read_f32_bits(rs1);
     let src = F32::from_bits(bits);
 
-    // NaN must clamp to the positive max regardless of its sign bit.
-    let negative = !src.is_nan() && (bits & 0x8000_0000) != 0;
-
-    let value = rv_fcvt_u64(src.to_u64(rm, true), negative);
+    let value = rv_fcvt_u64(src.to_u64(rm, true), src.is_nan(), (bits & 0x8000_0000) != 0);
 
     cpu.regs.write(rd, value);
 
@@ -372,6 +363,7 @@ pub fn fcvt_lu_s(cpu: &mut Cpu, rd: Reg, rs1: FReg, rm: u8) -> ExecResult {
 
     Ok(ExecFlow::Next)
 }
+
 pub fn fcvt_s_w(cpu: &mut Cpu, rd: FReg, rs1: Reg, rm: u8) -> ExecResult {
     clear_fflags();
 

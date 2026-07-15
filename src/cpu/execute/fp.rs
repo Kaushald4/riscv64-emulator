@@ -35,7 +35,7 @@ pub(crate) fn canonicalize_f32_nan(result: F32) -> F32 {
 }
 
 #[inline]
-pub(crate) fn rv_fcvt_i32(value: i32, negative: bool) -> i32 {
+pub(crate) fn rv_fcvt_i32(value: i32, is_nan: bool, negative: bool) -> i32 {
     let mut flags = ExceptionFlags::default();
     flags.get();
 
@@ -43,11 +43,17 @@ pub(crate) fn rv_fcvt_i32(value: i32, negative: bool) -> i32 {
         return value;
     }
 
-    if negative { i32::MIN } else { i32::MAX }
+    if is_nan {
+        i32::MAX
+    } else if negative {
+        i32::MIN
+    } else {
+        i32::MAX
+    }
 }
 
 #[inline]
-pub(crate) fn rv_fcvt_u32(value: u32, negative: bool) -> u32 {
+pub(crate) fn rv_fcvt_u32(value: u32, is_nan: bool, negative: bool) -> u32 {
     let mut flags = ExceptionFlags::default();
     flags.get();
 
@@ -55,11 +61,17 @@ pub(crate) fn rv_fcvt_u32(value: u32, negative: bool) -> u32 {
         return value;
     }
 
-    if negative { 0 } else { u32::MAX }
+    if is_nan {
+        u32::MAX
+    } else if negative {
+        0
+    } else {
+        u32::MAX
+    }
 }
 
 #[inline]
-pub(crate) fn rv_fcvt_i64(value: i64, negative: bool) -> i64 {
+pub(crate) fn rv_fcvt_i64(value: i64, is_nan: bool, negative: bool) -> i64 {
     let mut flags = ExceptionFlags::default();
     flags.get();
 
@@ -67,11 +79,17 @@ pub(crate) fn rv_fcvt_i64(value: i64, negative: bool) -> i64 {
         return value;
     }
 
-    if negative { i64::MIN } else { i64::MAX }
+    if is_nan {
+        i64::MAX
+    } else if negative {
+        i64::MIN
+    } else {
+        i64::MAX
+    }
 }
 
 #[inline]
-pub(crate) fn rv_fcvt_u64(value: u64, negative: bool) -> u64 {
+pub(crate) fn rv_fcvt_u64(value: u64, is_nan: bool, negative: bool) -> u64 {
     let mut flags = ExceptionFlags::default();
     flags.get();
 
@@ -79,5 +97,11 @@ pub(crate) fn rv_fcvt_u64(value: u64, negative: bool) -> u64 {
         return value;
     }
 
-    if negative { 0 } else { u64::MAX }
+    if is_nan {
+        u64::MAX
+    } else if negative {
+        0
+    } else {
+        u64::MAX
+    }
 }

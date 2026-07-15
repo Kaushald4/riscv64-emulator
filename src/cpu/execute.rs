@@ -163,10 +163,45 @@ pub fn execute(decoded: DecodedInstruction, cpu: &mut Cpu) -> ExecResult {
         Instruction::FmsubS { rd, rs1, rs2, rs3, rm } => rv64f::fmsub_s(cpu, rd, rs1, rs2, rs3, rm),
         Instruction::FnmsubS { rd, rs1, rs2, rs3, rm } => rv64f::fnmsub_s(cpu, rd, rs1, rs2, rs3, rm),
         Instruction::FnmaddS { rd, rs1, rs2, rs3, rm } => rv64f::fnmadd_s(cpu, rd, rs1, rs2, rs3, rm),
-        Instruction::FcvtSD { rd, rs1, rm } => rv64f::fcvt_s_d(cpu, rd, rs1, rm),
+
+        // D extension
+        Instruction::FcvtSD { rd, rs1, rm } => rv64d::fcvt_s_d(cpu, rd, rs1, rm),
+        Instruction::Fld { rd, rs1, imm } => rv64d::fld(cpu, rd, rs1, imm),
+        Instruction::Fsd { rs1, rs2, imm } => rv64d::fsd(cpu, rs1, rs2, imm),
+        Instruction::FmvDX { rd, rs1 } => rv64d::fmv_d_x(cpu, rd, rs1),
+        Instruction::FmvXD { rd, rs1 } => rv64d::fmv_x_d(cpu, rd, rs1),
+        Instruction::FaddD { rd, rs1, rs2, rm } => rv64d::fadd_d(cpu, rd, rs1, rs2, rm),
+        Instruction::FsubD { rd, rs1, rs2, rm } => rv64d::fsub_d(cpu, rd, rs1, rs2, rm),
+        Instruction::FmulD { rd, rs1, rs2, rm } => rv64d::fmul_d(cpu, rd, rs1, rs2, rm),
+        Instruction::FdivD { rd, rs1, rs2, rm } => rv64d::fdiv_d(cpu, rd, rs1, rs2, rm),
+        Instruction::FsqrtD { rd, rs1, rm } => rv64d::fsqrt_d(cpu, rd, rs1, rm),
+        Instruction::FsgnjD { rd, rs1, rs2 } => rv64d::fsgnj_d(cpu, rd, rs1, rs2),
+        Instruction::FsgnjnD { rd, rs1, rs2 } => rv64d::fsgnjn_d(cpu, rd, rs1, rs2),
+        Instruction::FsgnjxD { rd, rs1, rs2 } => rv64d::fsgnjx_d(cpu, rd, rs1, rs2),
+        Instruction::FminD { rd, rs1, rs2 } => rv64d::fmin_d(cpu, rd, rs1, rs2),
+        Instruction::FmaxD { rd, rs1, rs2 } => rv64d::fmax_d(cpu, rd, rs1, rs2),
+        Instruction::FeqD { rd, rs1, rs2 } => rv64d::feq_d(cpu, rd, rs1, rs2),
+        Instruction::FleD { rd, rs1, rs2 } => rv64d::fle_d(cpu, rd, rs1, rs2),
+        Instruction::FltD { rd, rs1, rs2 } => rv64d::flt_d(cpu, rd, rs1, rs2),
+        Instruction::FclassD { rd, rs1 } => rv64d::fclass_d(cpu, rd, rs1),
+        Instruction::FcvtWD { rd, rs1, rm } => rv64d::fcvt_w_d(cpu, rd, rs1, rm),
+        Instruction::FcvtWUD { rd, rs1, rm } => rv64d::fcvt_wu_d(cpu, rd, rs1, rm),
+        Instruction::FcvtLD { rd, rs1, rm } => rv64d::fcvt_l_d(cpu, rd, rs1, rm),
+        Instruction::FcvtLUD { rd, rs1, rm } => rv64d::fcvt_lu_d(cpu, rd, rs1, rm),
+        Instruction::FcvtDW { rd, rs1, rm } => rv64d::fcvt_d_w(cpu, rd, rs1, rm),
+        Instruction::FcvtDWU { rd, rs1, rm } => rv64d::fcvt_d_wu(cpu, rd, rs1, rm),
+        Instruction::FcvtDL { rd, rs1, rm } => rv64d::fcvt_d_l(cpu, rd, rs1, rm),
+        Instruction::FcvtDLU { rd, rs1, rm } => rv64d::fcvt_d_lu(cpu, rd, rs1, rm),
+        Instruction::FcvtDS { rd, rs1, rm } => rv64d::fcvt_d_s(cpu, rd, rs1, rm),
+        Instruction::FmaddD { rd, rs1, rs2, rs3, rm } => rv64d::fmadd_d(cpu, rd, rs1, rs2, rs3, rm),
+        Instruction::FmsubD { rd, rs1, rs2, rs3, rm } => rv64d::fmsub_d(cpu, rd, rs1, rs2, rs3, rm),
+        Instruction::FnmsubD { rd, rs1, rs2, rs3, rm } => rv64d::fnmsub_d(cpu, rd, rs1, rs2, rs3, rm),
+        Instruction::FnmaddD { rd, rs1, rs2, rs3, rm } => rv64d::fnmadd_d(cpu, rd, rs1, rs2, rs3, rm),
 
         Instruction::Undefined { raw } => Err(Trap::IllegalInstruction(raw)),
 
-        _ => unreachable!(),
+        _ => {
+            panic!("Unimplemented instruction: {:#?}", decoded.instruction)
+        }
     }
 }
