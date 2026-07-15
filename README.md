@@ -30,12 +30,12 @@ If you're also learning RISC-V or emulator internals, I'd genuinely love feedbac
 
 ## Features
 - [x] RV64IMAC - decoder base integer instruction set
-- [ ] RV64I - base integer instruction set
-- [ ] RV64M - multiply / divide
-- [ ] RV64C - compressed instructions
-- [ ] RV64A - atomics
-- [ ] RV64F/D - hardware floating point (single and double precision)
-- [ ] Privilege levels (M/S/U) and trap handling
+- [X] RV64I - base integer instruction set
+- [X] RV64M - multiply / divide
+- [X] RV64C - compressed instructions
+- [X] RV64A - atomics
+- [X] RV64F/D - hardware floating point (single and double precision)
+- [X] Privilege levels (M/S/U) and trap handling
 - [ ] CLINT - timer and software interrupts
 - [ ] PLIC - platform-level interrupt controller
 - [ ] UART (NS16550A) - serial console
@@ -51,10 +51,10 @@ I'm building this in deliberate, testable phases rather than jumping straight fo
 
 | Phase | Milestone                                           | Status      |
 | :---- | :-------------------------------------------------- | :---------- |
-| 0     | instruction decoding                                |  started    |
-| 1     | Fetch–decode–execute skeleton                       | Not started |
-| 2     | Pass `riscv-tests` (`rv64ui` / `um` / `uc` / `ua`)  | Not started |
-| 3     | Privilege levels, trap/exception handling, CLINT    | Not started |
+| 0     | instruction decoding                                |  Done       |
+| 1     | Fetch–decode–execute skeleton                       |  Done       |
+| 2     | Pass `riscv-tests` (`rv64ui` / `um` / `uc` / `ua`)  |  Done       |
+| 3     | Privilege levels, trap/exception handling, CLINT    |  started    |
 | 4     | UART console, SBI implementation, OpenSBI boot      | Not started |
 | 5     | Sv39 MMU — page table walker, TLB                   | Not started |
 | 6     | RV64F/D floating point (pass `rv64uf` / `ud` tests) | Not started |
