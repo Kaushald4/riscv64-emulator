@@ -58,7 +58,7 @@ fn execute_suite(prefix: &str) {
 
             instructions += 1;
 
-            if instructions > 10_000_000 {
+            if instructions > 20_000_000 {
                 panic!("{name}: exceeded instruction limit");
             }
         }
@@ -73,4 +73,8 @@ fn execute_rv64ui() {
 #[test]
 fn execute_rv64um() {
     execute_suite("rv64um-p-");
+}
+#[test]
+fn execute_rv64ua() {
+    execute_suite("rv64ua-p-");
 }
