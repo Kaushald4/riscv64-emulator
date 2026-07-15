@@ -7,6 +7,7 @@ use crate::{
 pub mod csr_execute;
 pub mod helper;
 pub mod rv64i;
+pub mod rv64m;
 pub mod rv64u;
 pub mod system;
 
@@ -87,6 +88,21 @@ pub fn execute(decoded: DecodedInstruction, cpu: &mut Cpu) -> ExecResult {
         Instruction::Ecall => system::ecall(cpu),
         Instruction::Mret => system::mret(cpu),
         Instruction::Sret => system::sret(cpu),
+
+        // M extension
+        Instruction::Mul { rd, rs1, rs2 } => rv64m::mul(cpu, rd, rs1, rs2),
+        Instruction::Mulhu { rd, rs1, rs2 } => rv64m::mulhu(cpu, rd, rs1, rs2),
+        Instruction::Mulh { rd, rs1, rs2 } => rv64m::mulh(cpu, rd, rs1, rs2),
+        Instruction::Mulhsu { rd, rs1, rs2 } => rv64m::mulhsu(cpu, rd, rs1, rs2),
+        Instruction::Divu { rd, rs1, rs2 } => rv64m::divu(cpu, rd, rs1, rs2),
+        Instruction::Div { rd, rs1, rs2 } => rv64m::div(cpu, rd, rs1, rs2),
+        Instruction::Rem { rd, rs1, rs2 } => rv64m::rem(cpu, rd, rs1, rs2),
+        Instruction::Remu { rd, rs1, rs2 } => rv64m::remu(cpu, rd, rs1, rs2),
+        Instruction::Mulw { rd, rs1, rs2 } => rv64m::mulw(cpu, rd, rs1, rs2),
+        Instruction::Divw { rd, rs1, rs2 } => rv64m::divw(cpu, rd, rs1, rs2),
+        Instruction::Divuw { rd, rs1, rs2 } => rv64m::divuw(cpu, rd, rs1, rs2),
+        Instruction::Remw { rd, rs1, rs2 } => rv64m::remw(cpu, rd, rs1, rs2),
+        Instruction::Remuw { rd, rs1, rs2 } => rv64m::remuw(cpu, rd, rs1, rs2),
 
         Instruction::Undefined { raw } => Err(Trap::IllegalInstruction(raw)),
 

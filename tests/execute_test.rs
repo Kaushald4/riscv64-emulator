@@ -69,3 +69,8 @@ fn execute_suite(prefix: &str) {
 fn execute_rv64ui() {
     execute_suite("rv64ui-p-");
 }
+
+#[test]
+fn execute_rv64um() {
+    execute_suite("rv64um-p-");
+}

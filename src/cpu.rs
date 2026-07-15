@@ -36,6 +36,8 @@ pub struct Cpu {
     pub current_instruction_length: u8,
     pub privilege_mode: PrivilegeMode,
     pub csr: Csr,
+    // reservation for LR/SC
+    pub reservation: Option<u64>,
 }
 
 impl Cpu {
@@ -48,6 +50,7 @@ impl Cpu {
             current_instruction_length: 4,
             privilege_mode: PrivilegeMode::Machine,
             csr: Csr::new(),
+            reservation: None,
         }
     }
 
@@ -168,6 +171,24 @@ impl Cpu {
         self.pc = self.csr.mtvec & !0b11;
 
         Ok(())
+    }
+}
+
+// reservation helpers
+impl Cpu {
+    #[inline]
+    pub fn reserve_address(&mut self, addr: u64) {
+        self.reservation = Some(addr);
+    }
+
+    #[inline]
+    pub fn clear_reservation(&mut self) {
+        self.reservation = None;
+    }
+
+    #[inline]
+    pub fn reservation_matches(&self, addr: u64) -> bool {
+        self.reservation == Some(addr)
     }
 }
 
