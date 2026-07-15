@@ -73,6 +73,10 @@ impl Cpu {
     }
 
     pub fn step(&mut self) -> Result<(), Trap> {
+        if let Some(cause) = self.pending_interrupt() {
+            self.handle_interrupt(cause)?;
+            return Ok(());
+        }
         let raw = self.fetch()?;
 
         let decoded = decode(raw);
@@ -98,11 +102,123 @@ impl Cpu {
 
         Ok(())
     }
+
+    pub fn handle_interrupt(&mut self, cause: u64) -> Result<(), Trap> {
+        // delegate to S-mode if enabled and we're not already in M-mode.
+        let delegated = self.privilege_mode != PrivilegeMode::Machine && self.csr.is_interrupt_delegated(cause);
+
+        if delegated {
+            return self.handle_supervisor_interrupt(cause);
+        }
+
+        // save PC.
+        self.csr.mepc = self.pc;
+
+        // interrupt bit.
+        self.csr.mcause = (1u64 << 63) | cause;
+
+        // MPIE <- MIE
+        let mie = (self.csr.mstatus >> 3) & 1;
+
+        self.csr.mstatus &= !(1 << 7);
+        self.csr.mstatus |= mie << 7;
+
+        // MIE <- 0
+        self.csr.mstatus &= !(1 << 3);
+
+        // MPP <- previous privilege
+        self.csr.mstatus &= !(0b11 << 11);
+
+        let mpp = match self.privilege_mode {
+            PrivilegeMode::User => 0,
+            PrivilegeMode::Supervisor => 1,
+            PrivilegeMode::Machine => 3,
+        };
+
+        self.csr.mstatus |= (mpp as u64) << 11;
+
+        self.privilege_mode = PrivilegeMode::Machine;
+
+        let base = self.csr.mtvec & !0b11;
+        let mode = self.csr.mtvec & 0b11;
+
+        self.pc = match mode {
+            0 => base,
+            1 => base + (cause << 2),
+            _ => base,
+        };
+
+        Ok(())
+    }
+    fn handle_supervisor_interrupt(&mut self, cause: u64) -> Result<(), Trap> {
+        self.csr.sepc = self.pc;
+
+        self.csr.scause = (1u64 << 63) | cause;
+
+        // SPIE <- SIE
+        let sie = (self.csr.sstatus >> 1) & 1;
+
+        self.csr.sstatus &= !(1 << 5);
+        self.csr.sstatus |= sie << 5;
+
+        // SIE <- 0
+        self.csr.sstatus &= !(1 << 1);
+
+        // SPP <- previous privilege
+        self.csr.sstatus &= !(1 << 8);
+
+        if self.privilege_mode == PrivilegeMode::Supervisor {
+            self.csr.sstatus |= 1 << 8;
+        }
+
+        self.privilege_mode = PrivilegeMode::Supervisor;
+
+        let base = self.csr.stvec & !0b11;
+        let mode = self.csr.stvec & 0b11;
+
+        self.pc = match mode {
+            0 => base,
+            1 => base + (cause << 2),
+            _ => base,
+        };
+
+        Ok(())
+    }
+
+    #[inline]
+    pub fn pending_interrupt(&self) -> Option<u64> {
+        let pending = self.csr.mip & self.csr.mie;
+
+        // machine external interrupt
+        if (pending & (1 << 11)) != 0 {
+            return Some(11);
+        }
+
+        // machine software interrupt
+        if (pending & (1 << 3)) != 0 {
+            return Some(3);
+        }
+
+        // machine timer interrupt
+        if (pending & (1 << 7)) != 0 {
+            return Some(7);
+        }
+
+        None
+    }
 }
 
 // trap handler
 impl Cpu {
-    fn handle_trap(&mut self, trap: Trap) -> Result<(), Trap> {
+    pub fn handle_trap(&mut self, trap: Trap) -> Result<(), Trap> {
+        let cause = Self::exception_cause(&trap);
+
+        let delegated = self.privilege_mode != PrivilegeMode::Machine && self.csr.is_exception_delegated(cause);
+
+        if delegated {
+            return self.handle_supervisor_trap(trap);
+        }
+
         // save faulting PC.
         self.csr.mepc = self.pc;
 
@@ -212,6 +328,130 @@ impl Cpu {
         }
 
         Ok(())
+    }
+
+    fn handle_supervisor_trap(&mut self, trap: Trap) -> Result<(), Trap> {
+        // Save faulting PC.
+        self.csr.sepc = self.pc;
+
+        // Clear stval by default.
+        self.csr.stval = 0;
+
+        // Record trap cause.
+        self.csr.scause = match trap {
+            Trap::InstructionAddressMisaligned(addr) => {
+                self.csr.stval = addr;
+                0
+            }
+
+            Trap::InstructionAccessFault => 1,
+
+            Trap::IllegalInstruction(inst) => {
+                self.csr.stval = inst as u64;
+                2
+            }
+
+            Trap::Breakpoint => 3,
+
+            Trap::LoadAddressMisaligned(addr) => {
+                self.csr.stval = addr;
+                4
+            }
+
+            Trap::LoadAccessFault => 5,
+
+            Trap::StoreAddressMisaligned(addr) => {
+                self.csr.stval = addr;
+                6
+            }
+
+            Trap::StoreAccessFault => 7,
+
+            Trap::EcallFromUMode => 8,
+            Trap::EcallFromSMode => 9,
+            Trap::EcallFromMMode => 11,
+
+            Trap::InstructionPageFault(addr) => {
+                self.csr.stval = addr;
+                12
+            }
+
+            Trap::LoadPageFault(addr) => {
+                self.csr.stval = addr;
+                13
+            }
+
+            Trap::StorePageFault(addr) => {
+                self.csr.stval = addr;
+                15
+            }
+        };
+
+        //
+        // sstatus updates
+        //
+
+        // SPIE <- SIE
+        let sie = (self.csr.sstatus >> 1) & 1;
+
+        self.csr.sstatus &= !(1 << 5);
+        self.csr.sstatus |= sie << 5;
+
+        // SIE <- 0
+        self.csr.sstatus &= !(1 << 1);
+
+        // SPP <- previous privilege
+        self.csr.sstatus &= !(1 << 8);
+
+        if self.privilege_mode == PrivilegeMode::Supervisor {
+            self.csr.sstatus |= 1 << 8;
+        }
+
+        // Enter Supervisor mode.
+        self.privilege_mode = PrivilegeMode::Supervisor;
+
+        //
+        // Jump to stvec.
+        //
+
+        let base = self.csr.stvec & !0b11;
+        let mode = self.csr.stvec & 0b11;
+
+        self.pc = match mode {
+            // Direct
+            0 => base,
+
+            // Vectored (interrupts only)
+            1 => {
+                let interrupt = (self.csr.scause >> 63) != 0;
+
+                if interrupt { base + ((self.csr.scause & !(1 << 63)) << 2) } else { base }
+            }
+
+            _ => base,
+        };
+
+        Ok(())
+    }
+
+    #[inline]
+    fn exception_cause(trap: &Trap) -> u64 {
+        match trap {
+            Trap::InstructionAddressMisaligned(_) => 0,
+            Trap::InstructionAccessFault => 1,
+            Trap::IllegalInstruction(_) => 2,
+            Trap::Breakpoint => 3,
+            Trap::LoadAddressMisaligned(_) => 4,
+            Trap::LoadAccessFault => 5,
+            Trap::StoreAddressMisaligned(_) => 6,
+            Trap::StoreAccessFault => 7,
+            Trap::EcallFromUMode => 8,
+            Trap::EcallFromSMode => 9,
+            Trap::EcallFromMMode => 11,
+            Trap::InstructionPageFault(_) => 12,
+            Trap::LoadPageFault(_) => 13,
+            Trap::StorePageFault(_) => 15,
+        }
     }
 }
 

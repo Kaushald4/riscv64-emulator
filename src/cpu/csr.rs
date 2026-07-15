@@ -43,6 +43,12 @@ pub const CSR_SEPC: u16 = 0x141;
 pub const CSR_SCAUSE: u16 = 0x142;
 pub const CSR_STVAL: u16 = 0x143;
 pub const CSR_SIP: u16 = 0x144;
+pub const SSIP: u64 = 1 << 1;
+pub const STIP: u64 = 1 << 5;
+pub const SEIP: u64 = 1 << 9;
+
+pub const SIE_MASK: u64 = SSIP | STIP | SEIP;
+pub const SIP_MASK: u64 = SSIP | STIP | SEIP;
 
 // floats csr
 pub const CSR_FFLAGS: u16 = 0x001;
@@ -138,7 +144,7 @@ impl Csr {
             CSR_MISA => Ok(self.misa),
             CSR_MEDELEG => Ok(self.medeleg),
             CSR_MIDELEG => Ok(self.mideleg),
-            CSR_MIE => Ok(self.mie),
+
             CSR_MTVEC => Ok(self.mtvec),
 
             CSR_MSCRATCH => Ok(self.mscratch),
@@ -146,11 +152,20 @@ impl Csr {
             CSR_MCAUSE => Ok(self.mcause),
             CSR_MTVAL => Ok(self.mtval),
             CSR_MIP => Ok(self.mip),
+            CSR_MIE => Ok(self.mie),
 
             CSR_SATP => Ok(self.satp),
 
             // supervisor
             CSR_SSTATUS => Ok(self.sstatus),
+            CSR_STVEC => Ok(self.stvec),
+            CSR_SEPC => Ok(self.sepc),
+            CSR_SCAUSE => Ok(self.scause),
+            CSR_STVAL => Ok(self.stval),
+
+            CSR_SSCRATCH => Ok(self.sscratch),
+            CSR_SIE => Ok(self.mie & SIE_MASK),
+            CSR_SIP => Ok(self.mip & SIP_MASK),
 
             // floats
             CSR_FFLAGS => Ok(self.fflags),
@@ -172,7 +187,6 @@ impl Csr {
             CSR_MISA => self.misa = value,
             CSR_MEDELEG => self.medeleg = value,
             CSR_MIDELEG => self.mideleg = value,
-            CSR_MIE => self.mie = value,
             CSR_MTVEC => self.mtvec = value,
 
             CSR_MSCRATCH => self.mscratch = value,
@@ -180,11 +194,23 @@ impl Csr {
             CSR_MCAUSE => self.mcause = value,
             CSR_MTVAL => self.mtval = value,
             CSR_MIP => self.mip = value,
+            CSR_MIE => self.mie = value,
 
             CSR_SATP => self.satp = value,
 
             // supervisor
             CSR_SSTATUS => self.sstatus = value,
+            CSR_STVEC => self.stvec = value,
+            CSR_SEPC => self.sepc = value,
+            CSR_SCAUSE => self.scause = value,
+            CSR_STVAL => self.stval = value,
+            CSR_SIE => {
+                self.mie = (self.mie & !SIE_MASK) | (value & SIE_MASK);
+            }
+
+            CSR_SIP => {
+                self.mip = (self.mip & !SIP_MASK) | (value & SIP_MASK);
+            }
 
             // floats
             CSR_FFLAGS => {
@@ -247,6 +273,16 @@ impl Csr {
             3 => PrivilegeMode::Machine,
             _ => unreachable!(),
         }
+    }
+
+    #[inline]
+    pub fn is_exception_delegated(&self, cause: u64) -> bool {
+        ((self.medeleg >> cause) & 1) != 0
+    }
+
+    #[inline]
+    pub fn is_interrupt_delegated(&self, cause: u64) -> bool {
+        ((self.mideleg >> cause) & 1) != 0
     }
 }
 

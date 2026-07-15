@@ -1,6 +1,16 @@
-use crate::cpu::{Cpu, ExecFlow, execute::ExecResult, register::Reg};
+use crate::{
+    cpu::{
+        Cpu, ExecFlow,
+        execute::{ExecResult, system::has_csr_access},
+        register::Reg,
+    },
+    trap::Trap,
+};
 
 pub fn csrrw(cpu: &mut Cpu, rd: Reg, rs1: Reg, csr: u16) -> ExecResult {
+    if !has_csr_access(cpu.privilege_mode, csr) {
+        return Err(Trap::IllegalInstruction(0));
+    }
     let old = cpu.csr.read(csr)?;
 
     cpu.csr.write(csr, cpu.regs.read(rs1))?;
@@ -11,6 +21,10 @@ pub fn csrrw(cpu: &mut Cpu, rd: Reg, rs1: Reg, csr: u16) -> ExecResult {
 }
 
 pub fn csrrs(cpu: &mut Cpu, rd: Reg, rs1: Reg, csr: u16) -> ExecResult {
+    if !has_csr_access(cpu.privilege_mode, csr) {
+        return Err(Trap::IllegalInstruction(0));
+    }
+
     let old = cpu.csr.read(csr)?;
 
     cpu.regs.write(rd, old);
@@ -23,6 +37,9 @@ pub fn csrrs(cpu: &mut Cpu, rd: Reg, rs1: Reg, csr: u16) -> ExecResult {
 }
 
 pub fn csrrc(cpu: &mut Cpu, rd: Reg, rs1: Reg, csr: u16) -> ExecResult {
+    if !has_csr_access(cpu.privilege_mode, csr) {
+        return Err(Trap::IllegalInstruction(0));
+    }
     let old = cpu.csr.read(csr)?;
 
     cpu.regs.write(rd, old);
@@ -35,6 +52,9 @@ pub fn csrrc(cpu: &mut Cpu, rd: Reg, rs1: Reg, csr: u16) -> ExecResult {
 }
 
 pub fn csrrwi(cpu: &mut Cpu, rd: Reg, uimm: u8, csr: u16) -> ExecResult {
+    if !has_csr_access(cpu.privilege_mode, csr) {
+        return Err(Trap::IllegalInstruction(0));
+    }
     let old = cpu.csr.read(csr)?;
 
     cpu.csr.write(csr, uimm as u64)?;
@@ -45,6 +65,9 @@ pub fn csrrwi(cpu: &mut Cpu, rd: Reg, uimm: u8, csr: u16) -> ExecResult {
 }
 
 pub fn csrrsi(cpu: &mut Cpu, rd: Reg, uimm: u8, csr: u16) -> ExecResult {
+    if !has_csr_access(cpu.privilege_mode, csr) {
+        return Err(Trap::IllegalInstruction(0));
+    }
     let old = cpu.csr.read(csr)?;
 
     cpu.regs.write(rd, old);
@@ -57,6 +80,9 @@ pub fn csrrsi(cpu: &mut Cpu, rd: Reg, uimm: u8, csr: u16) -> ExecResult {
 }
 
 pub fn csrrci(cpu: &mut Cpu, rd: Reg, uimm: u8, csr: u16) -> ExecResult {
+    if !has_csr_access(cpu.privilege_mode, csr) {
+        return Err(Trap::IllegalInstruction(0));
+    }
     let old = cpu.csr.read(csr)?;
 
     cpu.regs.write(rd, old);

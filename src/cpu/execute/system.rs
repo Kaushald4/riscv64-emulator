@@ -1,7 +1,8 @@
 use crate::{
     cpu::{
         Cpu, ExecFlow, ExecResult, PrivilegeMode,
-        csr::{MSTATUS_MIE, MSTATUS_MPIE, MSTATUS_MPP_MASK, MSTATUS_MPP_SHIFT, MSTATUS_SIE, MSTATUS_SPIE, MSTATUS_SPP},
+        csr::{MSTATUS_MIE, MSTATUS_MPIE, MSTATUS_MPP_MASK, MSTATUS_MPP_SHIFT},
+        register::Reg,
     },
     trap::Trap,
 };
@@ -26,9 +27,7 @@ pub fn ecall(cpu: &mut Cpu) -> ExecResult {
         PrivilegeMode::Machine => Err(Trap::EcallFromMMode),
     }
 }
-
 pub fn mret(cpu: &mut Cpu) -> ExecResult {
-    // read previous privilege mode from MPP.
     let mpp = (cpu.csr.mstatus & MSTATUS_MPP_MASK) >> MSTATUS_MPP_SHIFT;
 
     cpu.privilege_mode = match mpp {
@@ -39,9 +38,7 @@ pub fn mret(cpu: &mut Cpu) -> ExecResult {
     };
 
     // MIE <- MPIE
-    let mpie = (cpu.csr.mstatus & MSTATUS_MPIE) != 0;
-
-    if mpie {
+    if (cpu.csr.mstatus & MSTATUS_MPIE) != 0 {
         cpu.csr.mstatus |= MSTATUS_MIE;
     } else {
         cpu.csr.mstatus &= !MSTATUS_MIE;
@@ -50,34 +47,63 @@ pub fn mret(cpu: &mut Cpu) -> ExecResult {
     // MPIE <- 1
     cpu.csr.mstatus |= MSTATUS_MPIE;
 
-    // MPP <- User (00)
+    // MPP <- User
     cpu.csr.mstatus &= !MSTATUS_MPP_MASK;
 
-    // return to the saved PC.
     Ok(ExecFlow::Jump(cpu.csr.mepc))
 }
 
 pub fn sret(cpu: &mut Cpu) -> ExecResult {
-    // SPP == 0 -> User
-    // SPP == 1 -> Supervisor
-    let spp = (cpu.csr.mstatus & MSTATUS_SPP) != 0;
+    // SPP indicates the privilege mode to return to.
+    let spp = (cpu.csr.sstatus >> 8) & 1;
 
-    cpu.privilege_mode = if spp { PrivilegeMode::Supervisor } else { PrivilegeMode::User };
+    cpu.privilege_mode = if spp == 0 { PrivilegeMode::User } else { PrivilegeMode::Supervisor };
 
     // SIE <- SPIE
-    let spie = (cpu.csr.mstatus & MSTATUS_SPIE) != 0;
+    let spie = (cpu.csr.sstatus >> 5) & 1;
 
-    if spie {
-        cpu.csr.mstatus |= MSTATUS_SIE;
-    } else {
-        cpu.csr.mstatus &= !MSTATUS_SIE;
-    }
+    cpu.csr.sstatus &= !(1 << 1);
+    cpu.csr.sstatus |= spie << 1;
 
     // SPIE <- 1
-    cpu.csr.mstatus |= MSTATUS_SPIE;
+    cpu.csr.sstatus |= 1 << 5;
 
-    // SPP <- 0
-    cpu.csr.mstatus &= !MSTATUS_SPP;
+    // SPP <- User
+    cpu.csr.sstatus &= !(1 << 8);
 
     Ok(ExecFlow::Jump(cpu.csr.sepc))
+}
+
+pub fn sfence_vma(_cpu: &mut Cpu, _rs1: Reg, _rs2: Reg) -> ExecResult {
+    // no until a TLB is implemented.
+    Ok(ExecFlow::Next)
+}
+
+pub fn wfi(_cpu: &mut Cpu) -> ExecResult {
+    // no until interrupts are implemented.
+    Ok(ExecFlow::Next)
+}
+
+pub fn required_privilege(csr: u16) -> PrivilegeMode {
+    match (csr >> 8) & 0b11 {
+        0 => PrivilegeMode::User,
+        1 => PrivilegeMode::Supervisor,
+        2 => unreachable!(),
+        3 => PrivilegeMode::Machine,
+        _ => unreachable!(),
+    }
+}
+
+pub fn has_csr_access(current: PrivilegeMode, csr: u16) -> bool {
+    match current {
+        PrivilegeMode::Machine => true,
+
+        PrivilegeMode::Supervisor => {
+            matches!(required_privilege(csr), PrivilegeMode::Supervisor | PrivilegeMode::User)
+        }
+
+        PrivilegeMode::User => {
+            matches!(required_privilege(csr), PrivilegeMode::User)
+        }
+    }
 }

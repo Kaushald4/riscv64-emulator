@@ -92,6 +92,8 @@ pub fn execute(decoded: DecodedInstruction, cpu: &mut Cpu) -> ExecResult {
         Instruction::Ecall => system::ecall(cpu),
         Instruction::Mret => system::mret(cpu),
         Instruction::Sret => system::sret(cpu),
+        Instruction::SfenceVma { rs1, rs2 } => system::sfence_vma(cpu, rs1, rs2),
+        Instruction::Wfi => system::wfi(cpu),
 
         // M extension
         Instruction::Mul { rd, rs1, rs2 } => rv64m::mul(cpu, rd, rs1, rs2),
