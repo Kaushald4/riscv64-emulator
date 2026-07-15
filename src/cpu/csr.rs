@@ -1,4 +1,4 @@
-use crate::trap::Trap;
+use crate::{cpu::PrivilegeMode, trap::Trap};
 use std::collections::HashMap;
 
 pub const MSTATUS_MIE: u64 = 1 << 3;
@@ -77,6 +77,7 @@ pub struct Csr {
     pub stval: u64,
     pub sscratch: u64,
     pub stvec: u64,
+    pub sstatus: u64,
 
     // PMP
     pub pmpcfg: [u64; 16],
@@ -115,6 +116,7 @@ impl Csr {
             stval: 0,
             sscratch: 0,
             stvec: 0,
+            sstatus: 0,
 
             pmpcfg: [0; 16],
             pmpaddr: [0; 64],
@@ -147,6 +149,9 @@ impl Csr {
 
             CSR_SATP => Ok(self.satp),
 
+            // supervisor
+            CSR_SSTATUS => Ok(self.sstatus),
+
             // floats
             CSR_FFLAGS => Ok(self.fflags),
             CSR_FRM => Ok(self.frm),
@@ -177,6 +182,9 @@ impl Csr {
             CSR_MIP => self.mip = value,
 
             CSR_SATP => self.satp = value,
+
+            // supervisor
+            CSR_SSTATUS => self.sstatus = value,
 
             // floats
             CSR_FFLAGS => {
@@ -214,6 +222,31 @@ impl Csr {
         }
 
         Ok(())
+    }
+
+    #[inline]
+    pub fn sum(&self) -> bool {
+        ((self.sstatus >> 18) & 1) != 0
+    }
+
+    #[inline]
+    pub fn mxr(&self) -> bool {
+        ((self.sstatus >> 19) & 1) != 0
+    }
+
+    #[inline]
+    pub fn mprv(&self) -> bool {
+        ((self.mstatus >> 17) & 1) != 0
+    }
+
+    #[inline]
+    pub fn mpp(&self) -> PrivilegeMode {
+        match (self.mstatus >> 11) & 0b11 {
+            0 => PrivilegeMode::User,
+            1 => PrivilegeMode::Supervisor,
+            3 => PrivilegeMode::Machine,
+            _ => unreachable!(),
+        }
     }
 }
 

@@ -1,9 +1,11 @@
-use crate::cpu::{Cpu, ExecFlow, ExecResult, execute::helper::addr, register::Reg};
+use crate::{
+    cpu::{Cpu, ExecFlow, ExecResult, execute::helper::addr, register::Reg},
+    mmu::Mmu,
+};
 
 pub fn sb(cpu: &mut Cpu, rs1: Reg, rs2: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
-
-    cpu.bus.write8(addr, cpu.regs.read(rs2) as u8)?;
+    Mmu::write8(cpu, addr, cpu.regs.read(rs2) as u8)?;
 
     Ok(ExecFlow::Next)
 }
@@ -11,7 +13,7 @@ pub fn sb(cpu: &mut Cpu, rs1: Reg, rs2: Reg, imm: i64) -> ExecResult {
 pub fn sh(cpu: &mut Cpu, rs1: Reg, rs2: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
     let value = cpu.regs.read(rs2) as u16;
-    cpu.bus.write16(addr, value)?;
+    Mmu::write16(cpu, addr, value)?;
 
     Ok(ExecFlow::Next)
 }
@@ -19,7 +21,7 @@ pub fn sh(cpu: &mut Cpu, rs1: Reg, rs2: Reg, imm: i64) -> ExecResult {
 pub fn sw(cpu: &mut Cpu, rs1: Reg, rs2: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
     let value = cpu.regs.read(rs2) as u32;
-    cpu.bus.write32(addr, value)?;
+    Mmu::write32(cpu, addr, value)?;
 
     Ok(ExecFlow::Next)
 }
@@ -27,7 +29,7 @@ pub fn sw(cpu: &mut Cpu, rs1: Reg, rs2: Reg, imm: i64) -> ExecResult {
 pub fn sd(cpu: &mut Cpu, rs1: Reg, rs2: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
     let value = cpu.regs.read(rs2);
-    cpu.bus.write64(addr, value)?;
+    Mmu::write64(cpu, addr, value)?;
 
     Ok(ExecFlow::Next)
 }

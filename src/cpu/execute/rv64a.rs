@@ -1,8 +1,11 @@
-use crate::cpu::{Cpu, ExecFlow, ExecResult, register::Reg};
+use crate::{
+    cpu::{Cpu, ExecFlow, ExecResult, register::Reg},
+    mmu::Mmu,
+};
 
 pub fn lr_w(cpu: &mut Cpu, rd: Reg, rs1: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
-    let value = cpu.bus.read32(addr)? as i32 as i64 as u64;
+    let value = Mmu::read32(cpu, addr)? as i32 as i64 as u64;
 
     cpu.reserve_address(addr);
     cpu.regs.write(rd, value);
@@ -12,7 +15,7 @@ pub fn lr_w(cpu: &mut Cpu, rd: Reg, rs1: Reg) -> ExecResult {
 
 pub fn lr_d(cpu: &mut Cpu, rd: Reg, rs1: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
-    let value = cpu.bus.read64(addr)?;
+    let value = Mmu::read64(cpu, addr)?;
 
     cpu.reserve_address(addr);
     cpu.regs.write(rd, value);
@@ -23,7 +26,7 @@ pub fn lr_d(cpu: &mut Cpu, rd: Reg, rs1: Reg) -> ExecResult {
 pub fn sc_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
     if cpu.reservation_matches(addr) {
-        cpu.bus.write32(addr, cpu.regs.read(rs2) as u32)?;
+        Mmu::write32(cpu, addr, cpu.regs.read(rs2) as u32)?;
         cpu.regs.write(rd, 0);
     } else {
         cpu.regs.write(rd, 1);
@@ -36,7 +39,7 @@ pub fn sc_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 pub fn sc_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
     if cpu.reservation_matches(addr) {
-        cpu.bus.write64(addr, cpu.regs.read(rs2))?;
+        Mmu::write64(cpu, addr, cpu.regs.read(rs2))?;
         cpu.regs.write(rd, 0);
     } else {
         cpu.regs.write(rd, 1);
@@ -49,8 +52,8 @@ pub fn sc_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 // swap
 pub fn amoswap_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
-    let old = cpu.bus.read32(addr)? as i32 as i64 as u64;
-    cpu.bus.write32(addr, cpu.regs.read(rs2) as u32)?;
+    let old = Mmu::read32(cpu, addr)? as i32 as i64 as u64;
+    Mmu::write32(cpu, addr, cpu.regs.read(rs2) as u32)?;
     cpu.regs.write(rd, old);
     cpu.clear_reservation();
 
@@ -70,10 +73,10 @@ pub fn amoswap_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 // arithmetic
 pub fn amoadd_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
-    let old = cpu.bus.read32(addr)? as i32;
+    let old = Mmu::read32(cpu, addr)? as i32;
     let rhs = cpu.regs.read(rs2) as i32;
     let new = old.wrapping_add(rhs);
-    cpu.bus.write32(addr, new as u32)?;
+    Mmu::write32(cpu, addr, new as u32)?;
     cpu.regs.write(rd, old as i64 as u64);
     cpu.clear_reservation();
 
@@ -92,9 +95,9 @@ pub fn amoadd_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 }
 pub fn amoxor_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
-    let old = cpu.bus.read32(addr)? as u32;
+    let old = Mmu::read32(cpu, addr)? as u32;
     let rhs = cpu.regs.read(rs2) as u32;
-    cpu.bus.write32(addr, old ^ rhs)?;
+    Mmu::write32(cpu, addr, old ^ rhs)?;
     cpu.regs.write(rd, old as i32 as i64 as u64);
     cpu.clear_reservation();
 
@@ -112,9 +115,9 @@ pub fn amoxor_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 }
 pub fn amoor_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
-    let old = cpu.bus.read32(addr)? as u32;
+    let old = Mmu::read32(cpu, addr)? as u32;
     let rhs = cpu.regs.read(rs2) as u32;
-    cpu.bus.write32(addr, old | rhs)?;
+    Mmu::write32(cpu, addr, old | rhs)?;
     cpu.regs.write(rd, old as i32 as i64 as u64);
     cpu.clear_reservation();
 
@@ -132,9 +135,9 @@ pub fn amoor_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 }
 pub fn amoand_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
-    let old = cpu.bus.read32(addr)? as u32;
+    let old = Mmu::read32(cpu, addr)? as u32;
     let rhs = cpu.regs.read(rs2) as u32;
-    cpu.bus.write32(addr, old & rhs)?;
+    Mmu::write32(cpu, addr, old & rhs)?;
     cpu.regs.write(rd, old as i32 as i64 as u64);
     cpu.clear_reservation();
 
@@ -155,12 +158,12 @@ pub fn amoand_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 pub fn amomin_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
 
-    let old = cpu.bus.read32(addr)? as i32;
+    let old = Mmu::read32(cpu, addr)? as i32;
     let rhs = cpu.regs.read(rs2) as i32;
 
     let new = old.min(rhs);
 
-    cpu.bus.write32(addr, new as u32)?;
+    Mmu::write32(cpu, addr, new as u32)?;
     cpu.regs.write(rd, old as i64 as u64);
 
     cpu.clear_reservation();
@@ -185,12 +188,12 @@ pub fn amomin_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 pub fn amomax_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
 
-    let old = cpu.bus.read32(addr)? as i32;
+    let old = Mmu::read32(cpu, addr)? as i32;
     let rhs = cpu.regs.read(rs2) as i32;
 
     let new = old.max(rhs);
 
-    cpu.bus.write32(addr, new as u32)?;
+    Mmu::write32(cpu, addr, new as u32)?;
     cpu.regs.write(rd, old as i64 as u64);
 
     cpu.clear_reservation();
@@ -215,12 +218,12 @@ pub fn amomax_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 pub fn amominu_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
 
-    let old = cpu.bus.read32(addr)? as u32;
+    let old = Mmu::read32(cpu, addr)? as u32;
     let rhs = cpu.regs.read(rs2) as u32;
 
     let new = old.min(rhs);
 
-    cpu.bus.write32(addr, new)?;
+    Mmu::write32(cpu, addr, new)?;
     cpu.regs.write(rd, old as i32 as i64 as u64);
 
     cpu.clear_reservation();
@@ -245,12 +248,12 @@ pub fn amominu_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 pub fn amomaxu_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
 
-    let old = cpu.bus.read32(addr)? as u32;
+    let old = Mmu::read32(cpu, addr)? as u32;
     let rhs = cpu.regs.read(rs2) as u32;
 
     let new = old.max(rhs);
 
-    cpu.bus.write32(addr, new)?;
+    Mmu::write32(cpu, addr, new)?;
     cpu.regs.write(rd, old as i32 as i64 as u64);
 
     cpu.clear_reservation();

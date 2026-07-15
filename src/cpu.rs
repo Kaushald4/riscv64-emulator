@@ -8,6 +8,7 @@ pub mod register;
 use crate::{
     cpu::{bus::Bus, csr::Csr},
     decode::decode,
+    mmu::Mmu,
     trap::Trap,
 };
 
@@ -21,7 +22,7 @@ pub enum ExecFlow {
 }
 pub type ExecResult = Result<ExecFlow, Trap>;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum PrivilegeMode {
     Machine,
     Supervisor,
@@ -59,12 +60,13 @@ impl Cpu {
             return Err(Trap::InstructionAddressMisaligned(self.pc));
         }
 
-        let first = self.bus.read16(self.pc)?;
+        let first = Mmu::read16(self, self.pc)?;
 
         if first & 0b11 != 0b11 {
             Ok(first as u32)
         } else {
-            let second = self.bus.read16(self.pc + 2)?;
+            // let second = self.bus.read16(self.pc + 2)?;
+            let second = Mmu::read16(self, self.pc + 2)?;
 
             Ok((first as u32) | ((second as u32) << 16))
         }
@@ -101,17 +103,19 @@ impl Cpu {
 // trap handler
 impl Cpu {
     fn handle_trap(&mut self, trap: Trap) -> Result<(), Trap> {
-        // save exception PC.
+        // save faulting PC.
         self.csr.mepc = self.pc;
 
-        // clear MTVAL by default.
+        // clear mtval by default.
         self.csr.mtval = 0;
 
+        // record trap cause.
         self.csr.mcause = match trap {
             Trap::InstructionAddressMisaligned(addr) => {
                 self.csr.mtval = addr;
                 0
             }
+
             Trap::InstructionAccessFault => 1,
 
             Trap::IllegalInstruction(inst) => {
@@ -125,32 +129,48 @@ impl Cpu {
                 self.csr.mtval = addr;
                 4
             }
+
             Trap::LoadAccessFault => 5,
 
             Trap::StoreAddressMisaligned(addr) => {
                 self.csr.mtval = addr;
                 6
             }
+
             Trap::StoreAccessFault => 7,
 
             Trap::EcallFromUMode => 8,
             Trap::EcallFromSMode => 9,
             Trap::EcallFromMMode => 11,
+
+            Trap::InstructionPageFault(addr) => {
+                self.csr.mtval = addr;
+                12
+            }
+
+            Trap::LoadPageFault(addr) => {
+                self.csr.mtval = addr;
+                13
+            }
+
+            Trap::StorePageFault(addr) => {
+                self.csr.mtval = addr;
+                15
+            }
         };
+
+        // mstatus updates
 
         // MPIE <- MIE
         let mie = (self.csr.mstatus >> 3) & 1;
 
-        if mie != 0 {
-            self.csr.mstatus |= 1 << 7;
-        } else {
-            self.csr.mstatus &= !(1 << 7);
-        }
+        self.csr.mstatus &= !(1 << 7);
+        self.csr.mstatus |= mie << 7;
 
         // MIE <- 0
         self.csr.mstatus &= !(1 << 3);
 
-        // MPP <- current privilege
+        // MPP <- previous privilege mode
         self.csr.mstatus &= !(0b11 << 11);
 
         let mpp = match self.privilege_mode {
@@ -161,14 +181,35 @@ impl Cpu {
 
         self.csr.mstatus |= (mpp as u64) << 11;
 
-        // enter M-mode.
+        // enter Machine mode.
         self.privilege_mode = PrivilegeMode::Machine;
 
-        let inst = self.bus.read32(self.pc).unwrap_or(0);
+        // Jump to trap vector.
 
-        println!("FAULT INST = {:#010x}", inst);
-        // jump to trap vector base.
-        self.pc = self.csr.mtvec & !0b11;
+        let base = self.csr.mtvec & !0b11;
+        let mode = self.csr.mtvec & 0b11;
+
+        self.pc = match mode {
+            // Direct
+            0 => base,
+
+            // vectored
+            // interrupts use BASE + 4*cause.
+            // exceptions always go to BASE.
+            1 => {
+                let interrupt = (self.csr.mcause >> 63) != 0;
+
+                if interrupt { base + ((self.csr.mcause & !(1 << 63)) << 2) } else { base }
+            }
+
+            // reserved modes
+            _ => base,
+        };
+
+        #[cfg(debug_assertions)]
+        {
+            println!("Trap: mcause={} mepc={:#018x} mtval={:#018x}", self.csr.mcause, self.csr.mepc, self.csr.mtval);
+        }
 
         Ok(())
     }

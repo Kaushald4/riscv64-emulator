@@ -1,18 +1,21 @@
 use softfloat_wrapper::{ExceptionFlags, F32, F64, Float};
 
-use crate::cpu::{
-    Cpu, ExecFlow, ExecResult,
-    execute::{
-        fp::{clear_fflags, get_rounding_mode, rv_fcvt_i32, rv_fcvt_i64, rv_fcvt_u32, rv_fcvt_u64, update_fflags},
-        helper::addr,
+use crate::{
+    cpu::{
+        Cpu, ExecFlow, ExecResult,
+        execute::{
+            fp::{clear_fflags, get_rounding_mode, rv_fcvt_i32, rv_fcvt_i64, rv_fcvt_u32, rv_fcvt_u64, update_fflags},
+            helper::addr,
+        },
+        f_register::FReg,
+        register::Reg,
     },
-    f_register::FReg,
-    register::Reg,
+    mmu::Mmu,
 };
 // memory
 pub fn fld(cpu: &mut Cpu, rd: FReg, rs1: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
-    let bits = cpu.bus.read64(addr)?;
+    let bits = Mmu::read64(cpu, addr)?;
 
     cpu.f_regs.write_f64_bits(rd, bits);
 
@@ -23,7 +26,7 @@ pub fn fsd(cpu: &mut Cpu, rs1: Reg, rs2: FReg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
     let bits = cpu.f_regs.read_f64_bits(rs2);
 
-    cpu.bus.write64(addr, bits)?;
+    Mmu::write64(cpu, addr, bits)?;
 
     Ok(ExecFlow::Next)
 }

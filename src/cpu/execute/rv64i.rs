@@ -1,6 +1,7 @@
 use crate::cpu::execute::helper::addr;
 use crate::cpu::register::Reg;
 use crate::cpu::{Cpu, ExecFlow, ExecResult};
+use crate::mmu::Mmu;
 use crate::trap::Trap;
 
 // ALU immediates
@@ -224,7 +225,8 @@ pub fn sraw(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 // Loads
 pub fn lb(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
-    let value = cpu.bus.read8(addr)? as i8 as i64 as u64;
+    let value = Mmu::read8(cpu, addr)? as i8 as i64 as u64;
+
     cpu.regs.write(rd, value);
 
     Ok(ExecFlow::Next)
@@ -232,7 +234,7 @@ pub fn lb(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
 
 pub fn lbu(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
-    let value = cpu.bus.read8(addr)? as u64;
+    let value = Mmu::read8(cpu, addr)? as u64;
     cpu.regs.write(rd, value);
 
     Ok(ExecFlow::Next)
@@ -240,7 +242,7 @@ pub fn lbu(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
 
 pub fn lh(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
-    let value = cpu.bus.read16(addr)?;
+    let value = Mmu::read16(cpu, addr)?;
     cpu.regs.write(rd, (value as i16 as i64) as u64);
 
     Ok(ExecFlow::Next)
@@ -248,7 +250,7 @@ pub fn lh(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
 
 pub fn lhu(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
-    let value = cpu.bus.read16(addr)?;
+    let value = Mmu::read16(cpu, addr)?;
     cpu.regs.write(rd, value as u64);
 
     Ok(ExecFlow::Next)
@@ -256,7 +258,8 @@ pub fn lhu(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
 
 pub fn lw(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
-    let value = cpu.bus.read32(addr)?;
+    let value = Mmu::read32(cpu, addr)?;
+
     cpu.regs.write(rd, (value as i32 as i64) as u64);
 
     Ok(ExecFlow::Next)
@@ -264,7 +267,7 @@ pub fn lw(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
 
 pub fn lwu(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
-    let value = cpu.bus.read32(addr)?;
+    let value = Mmu::read32(cpu, addr)?;
     cpu.regs.write(rd, value as u64);
 
     Ok(ExecFlow::Next)
@@ -272,7 +275,7 @@ pub fn lwu(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
 
 pub fn ld(cpu: &mut Cpu, rd: Reg, rs1: Reg, imm: i64) -> ExecResult {
     let addr = addr(cpu, rs1, imm);
-    let value = cpu.bus.read64(addr)?;
+    let value = Mmu::read64(cpu, addr)?;
     cpu.regs.write(rd, value);
 
     Ok(ExecFlow::Next)

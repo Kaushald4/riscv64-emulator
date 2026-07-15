@@ -11,6 +11,10 @@ pub enum Trap {
 
     StoreAccessFault,
 
+    InstructionPageFault(u64),
+    LoadPageFault(u64),
+    StorePageFault(u64),
+
     Breakpoint,
     EcallFromUMode,
     EcallFromSMode,
