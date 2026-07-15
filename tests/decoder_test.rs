@@ -64,3 +64,8 @@ fn decode_rv64uc() {
 fn decode_rv64uf() {
     decode_suite("rv64uf-p-");
 }
+
+#[test]
+fn decode_rv64ud() {
+    decode_suite("rv64ud-p-");
+}

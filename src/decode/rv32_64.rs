@@ -1,7 +1,7 @@
 use crate::{
     decode::{
         formats::{fence_fm, fence_pred, fence_succ, funct3, funct5, funct7, imm_b, imm_i, imm_j, imm_u, imm12, opcode, rd, rs1, rs2, shamt5, shamt6, sign_extend, uimm},
-        rv64f::{self, decode_madd, decode_msub, decode_nmadd, decode_nmsub},
+        rv64fd::{self, decode_madd, decode_msub, decode_nmadd, decode_nmsub},
     },
     instruction::Instruction,
     opcode::{OP, OP_ATOMIC, OP_AUIPC, OP_BRANCH, OP_FP, OP_IMM, OP_IMM_W, OP_JAL, OP_JALR, OP_LOAD, OP_LOAD_FP, OP_LUI, OP_MISC_MEM, OP_STORE, OP_STORE_FP, OP_SYSTEM, OP_W, OPCODE_FMADD, OPCODE_FMSUB, OPCODE_FNMADD, OPCODE_FNMSUB},
@@ -24,9 +24,9 @@ pub fn decode_normal(raw: u32) -> Instruction {
         OP_SYSTEM => decode_system(raw),
         OP_MISC_MEM => decode_misc_mem(raw),
         // floating point
-        OP_LOAD_FP => rv64f::decode_load_fp(raw),
-        OP_STORE_FP => rv64f::decode_store_fp(raw),
-        OP_FP => rv64f::decode_op_fp(raw),
+        OP_LOAD_FP => rv64fd::decode_load_fp(raw),
+        OP_STORE_FP => rv64fd::decode_store_fp(raw),
+        OP_FP => rv64fd::decode_op_fp(raw),
         OPCODE_FMADD => decode_madd(raw),
         OPCODE_FMSUB => decode_msub(raw),
         OPCODE_FNMSUB => decode_nmsub(raw),
