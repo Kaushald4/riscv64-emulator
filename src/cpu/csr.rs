@@ -44,6 +44,11 @@ pub const CSR_SCAUSE: u16 = 0x142;
 pub const CSR_STVAL: u16 = 0x143;
 pub const CSR_SIP: u16 = 0x144;
 
+// floats csr
+pub const CSR_FFLAGS: u16 = 0x001;
+pub const CSR_FRM: u16 = 0x002;
+pub const CSR_FCSR: u16 = 0x003;
+
 // optional
 pub const CSR_MNSTATUS: u16 = 0x744;
 
@@ -77,6 +82,11 @@ pub struct Csr {
     pub pmpcfg: [u64; 16],
     pub pmpaddr: [u64; 64],
 
+    // floats csr
+    pub fflags: u64,
+    pub frm: u64,
+    pub fcsr: u64,
+
     // everything else
     extra: HashMap<u16, u64>,
 }
@@ -109,13 +119,16 @@ impl Csr {
             pmpcfg: [0; 16],
             pmpaddr: [0; 64],
 
+            fflags: 0,
+            frm: 0,
+            fcsr: 0,
+
             extra: HashMap::new(),
         }
     }
 
     #[inline]
     pub fn read(&self, csr: u16) -> Result<u64, Trap> {
-        println!("CSR READ {:03x}", csr);
         match csr {
             CSR_MHARTID => Ok(self.mhartid),
 
@@ -133,6 +146,11 @@ impl Csr {
             CSR_MIP => Ok(self.mip),
 
             CSR_SATP => Ok(self.satp),
+
+            // floats
+            CSR_FFLAGS => Ok(self.fflags),
+            CSR_FRM => Ok(self.frm),
+            CSR_FCSR => Ok(self.fcsr),
 
             0x3A0..=0x3AF => Ok(self.pmpcfg[(csr - 0x3A0) as usize]),
 
@@ -159,6 +177,23 @@ impl Csr {
             CSR_MIP => self.mip = value,
 
             CSR_SATP => self.satp = value,
+
+            // floats
+            CSR_FFLAGS => {
+                self.fflags = value & 0x1f;
+                self.fcsr = (self.frm << 5) | self.fflags;
+            }
+
+            CSR_FRM => {
+                self.frm = value & 0x7;
+                self.fcsr = (self.frm << 5) | self.fflags;
+            }
+
+            CSR_FCSR => {
+                self.fcsr = value & 0xff;
+                self.fflags = self.fcsr & 0x1f;
+                self.frm = (self.fcsr >> 5) & 0x7;
+            }
 
             0x3A0..=0x3AF => {
                 self.pmpcfg[(csr - 0x3A0) as usize] = value;

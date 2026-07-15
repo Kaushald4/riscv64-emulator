@@ -78,3 +78,7 @@ fn execute_rv64um() {
 fn execute_rv64ua() {
     execute_suite("rv64ua-p-");
 }
+#[test]
+fn execute_rv64uf() {
+    execute_suite("rv64uf-p-");
+}

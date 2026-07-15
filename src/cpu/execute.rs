@@ -5,8 +5,10 @@ use crate::{
 };
 
 pub mod csr_execute;
+pub mod fp;
 pub mod helper;
 pub mod rv64a;
+pub mod rv64d;
 pub mod rv64f;
 pub mod rv64i;
 pub mod rv64m;
@@ -133,6 +135,35 @@ pub fn execute(decoded: DecodedInstruction, cpu: &mut Cpu) -> ExecResult {
         // F extension
         Instruction::Flw { rd, rs1, imm } => rv64f::flw(cpu, rd, rs1, imm),
         Instruction::Fsw { rs1, rs2, imm } => rv64f::fsw(cpu, rs1, rs2, imm),
+        Instruction::FmvWX { rd, rs1 } => rv64f::fmv_w_x(cpu, rd, rs1),
+        Instruction::FmvXW { rd, rs1 } => rv64f::fmv_x_w(cpu, rd, rs1),
+        Instruction::FsgnjS { rd, rs1, rs2 } => rv64f::fsgnj_s(cpu, rd, rs1, rs2),
+        Instruction::FsgnjnS { rd, rs1, rs2 } => rv64f::fsgnjn_s(cpu, rd, rs1, rs2),
+        Instruction::FsgnjxS { rd, rs1, rs2 } => rv64f::fsgnjx_s(cpu, rd, rs1, rs2),
+        Instruction::FclassS { rd, rs1 } => rv64f::fclass_s(cpu, rd, rs1),
+        Instruction::FaddS { rd, rs1, rs2, rm } => rv64f::fadd_s(cpu, rd, rs1, rs2, rm),
+        Instruction::FsubS { rd, rs1, rs2, rm } => rv64f::fsub_s(cpu, rd, rs1, rs2, rm),
+        Instruction::FmulS { rd, rs1, rs2, rm } => rv64f::fmul_s(cpu, rd, rs1, rs2, rm),
+        Instruction::FdivS { rd, rs1, rs2, rm } => rv64f::fdiv_s(cpu, rd, rs1, rs2, rm),
+        Instruction::FsqrtS { rd, rs1, rm } => rv64f::fsqrt_s(cpu, rd, rs1, rm),
+        Instruction::FminS { rd, rs1, rs2 } => rv64f::fmin_s(cpu, rd, rs1, rs2),
+        Instruction::FmaxS { rd, rs1, rs2 } => rv64f::fmax_s(cpu, rd, rs1, rs2),
+        Instruction::FeqS { rd, rs1, rs2 } => rv64f::feq_s(cpu, rd, rs1, rs2),
+        Instruction::FltS { rd, rs1, rs2 } => rv64f::flt_s(cpu, rd, rs1, rs2),
+        Instruction::FleS { rd, rs1, rs2 } => rv64f::fle_s(cpu, rd, rs1, rs2),
+        Instruction::FcvtWS { rd, rs1, rm } => rv64f::fcvt_w_s(cpu, rd, rs1, rm),
+        Instruction::FcvtWUS { rd, rs1, rm } => rv64f::fcvt_wu_s(cpu, rd, rs1, rm),
+        Instruction::FcvtLS { rd, rs1, rm } => rv64f::fcvt_l_s(cpu, rd, rs1, rm),
+        Instruction::FcvtLUS { rd, rs1, rm } => rv64f::fcvt_lu_s(cpu, rd, rs1, rm),
+        Instruction::FcvtSW { rd, rs1, rm } => rv64f::fcvt_s_w(cpu, rd, rs1, rm),
+        Instruction::FcvtSWU { rd, rs1, rm } => rv64f::fcvt_s_wu(cpu, rd, rs1, rm),
+        Instruction::FcvtSL { rd, rs1, rm } => rv64f::fcvt_s_l(cpu, rd, rs1, rm),
+        Instruction::FcvtSLU { rd, rs1, rm } => rv64f::fcvt_s_lu(cpu, rd, rs1, rm),
+        Instruction::FmaddS { rd, rs1, rs2, rs3, rm } => rv64f::fmadd_s(cpu, rd, rs1, rs2, rs3, rm),
+        Instruction::FmsubS { rd, rs1, rs2, rs3, rm } => rv64f::fmsub_s(cpu, rd, rs1, rs2, rs3, rm),
+        Instruction::FnmsubS { rd, rs1, rs2, rs3, rm } => rv64f::fnmsub_s(cpu, rd, rs1, rs2, rs3, rm),
+        Instruction::FnmaddS { rd, rs1, rs2, rs3, rm } => rv64f::fnmadd_s(cpu, rd, rs1, rs2, rs3, rm),
+        Instruction::FcvtSD { rd, rs1, rm } => rv64f::fcvt_s_d(cpu, rd, rs1, rm),
 
         Instruction::Undefined { raw } => Err(Trap::IllegalInstruction(raw)),
 

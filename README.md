@@ -107,6 +107,7 @@ This is a personal learning project, but I'm holding it to the same bar I'd want
 - [Tinyemu](https://github.com/dearchap/tinyemu)
 - [QEMU](https://github.com/qemu/QEMU)
 - [webvm](https://webvm.io/)
+- [Softfloat_Wrapper](https://docs.rs/softfloat-wrapper/latest/softfloat_wrapper/)
 
 ## License
 
