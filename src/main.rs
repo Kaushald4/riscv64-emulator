@@ -6,29 +6,32 @@ use glasshart_emulator::{
 };
 
 const RAM_BASE: u64 = 0x8000_0000;
-const DTB_ADDR: u64 = 0x87F0_0000;
+const DTB_ADDR: u64 = 0x8000_0000 + 0x2200000;
+const KERNEL_ADDR: u64 = 0x80200000;
 
 fn main() -> Result<(), Trap> {
     let mut cpu = Cpu::new();
 
     let firmware = fs::read("firmware/fw_jump.bin").expect("failed to read firmware/fw_jump.bin");
-
     for (i, byte) in firmware.iter().enumerate() {
-        let addr = RAM_BASE + i as u64;
+        cpu.bus.write8(RAM_BASE + i as u64, *byte).unwrap();
+    }
 
-        if let Err(e) = cpu.bus.write8(addr, *byte) {
-            println!("Failed at address {:#018x}", addr);
-            return Err(e);
-        }
+    let kernel: Vec<u8> = fs::read("/home/kaushal/linux/arch/riscv/boot/Image").unwrap();
+    println!("Kernel Size: {} MB", kernel.len() / 1024 / 1024);
+
+    let kernel_end = KERNEL_ADDR + kernel.len() as u64;
+    if kernel_end >= DTB_ADDR {
+        panic!("FATAL: Linux Image is too large and will overwrite the DTB! Kernel ends at {:#x}, DTB starts at {:#x}", kernel_end, DTB_ADDR);
+    }
+
+    for (i, byte) in kernel.iter().enumerate() {
+        cpu.bus.write8(KERNEL_ADDR + i as u64, *byte).unwrap();
     }
 
     let dtb = fs::read("firmware/virt.dtb").expect("failed to read firmware/virt.dtb");
-
     for (i, byte) in dtb.iter().enumerate() {
-        if let Err(e) = cpu.bus.write8(DTB_ADDR + i as u64, *byte) {
-            println!("Failed at address {:#018x}", DTB_ADDR + i as u64);
-            return Err(e);
-        };
+        cpu.bus.write8(DTB_ADDR + i as u64, *byte).unwrap();
     }
 
     cpu.pc = RAM_BASE;

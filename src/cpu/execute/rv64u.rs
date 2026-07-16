@@ -42,7 +42,6 @@ pub fn lui(cpu: &mut Cpu, rd: Reg, imm: i64) -> ExecResult {
 
 pub fn auipc(cpu: &mut Cpu, rd: Reg, imm: i64) -> ExecResult {
     let value = cpu.pc.wrapping_add_signed(imm);
-
     cpu.regs.write(rd, value);
     Ok(ExecFlow::Next)
 }

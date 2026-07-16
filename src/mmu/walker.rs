@@ -19,6 +19,18 @@ impl PageWalker {
     pub fn translate(cpu: &mut Cpu, virtual_address: u64, access: AccessType) -> Result<Translation, Trap> {
         let satp = Satp::new(cpu.csr.satp);
 
+        // 1. Bypass MMU completely for Machine Mode (or M-mode with MPRV=0)
+        if Self::effective_privilege(cpu, access) == PrivilegeMode::Machine {
+            return Ok(Translation {
+                physical_address: virtual_address,
+                translated: false,
+                root_page_table: 0,
+            });
+        }
+
+        // 2. Otherwise, check SATP for Supervisor/User translation
+        let satp = Satp::new(cpu.csr.satp);
+
         match satp.mode() {
             SatpMode::Bare => {
                 return Ok(Translation {
@@ -51,14 +63,10 @@ impl PageWalker {
             let pte_addr = table + vpn * Self::PTE_SIZE;
             let pte = Pte::new(cpu.bus.read64(pte_addr)?);
 
-            // Spec step 3:
-            // If pte.v = 0 or (pte.r = 0 && pte.w = 1), stop and raise page fault.
             if pte.is_invalid() {
                 return Err(Self::page_fault(access, virtual_address));
             }
 
-            // Spec step 4:
-            // Leaf PTE found.
             if pte.is_leaf() {
                 Self::check_permissions(cpu, pte, access, virtual_address)?;
 
@@ -68,7 +76,7 @@ impl PageWalker {
 
                     // 2 MiB page
                     1 => {
-                        // Misaligned superpage?
+                        // misaligned superpage?
                         if pte.ppn0() != 0 {
                             return Err(Self::page_fault(access, virtual_address));
                         }
@@ -78,7 +86,7 @@ impl PageWalker {
 
                     // 1 GiB page
                     2 => {
-                        // Misaligned superpage?
+                        // misaligned superpage?
                         if pte.ppn0() != 0 || pte.ppn1() != 0 {
                             return Err(Self::page_fault(access, virtual_address));
                         }
@@ -96,8 +104,8 @@ impl PageWalker {
                 });
             }
 
-            // Spec step 5:
-            // Descend to the next level.
+            // spec step 5:
+            // descend to the next level.
             level -= 1;
 
             if level < 0 {

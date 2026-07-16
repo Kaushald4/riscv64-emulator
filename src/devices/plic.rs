@@ -16,7 +16,7 @@ impl Plic {
     #[inline]
     fn offset(addr: u64) -> Result<usize, Trap> {
         if !(PLIC_BASE..PLIC_BASE + PLIC_SIZE).contains(&addr) {
-            return Err(Trap::LoadAccessFault);
+            return Err(Trap::LoadAccessFault(addr));
         }
 
         Ok((addr - PLIC_BASE) as usize)

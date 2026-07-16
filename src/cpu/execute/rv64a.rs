@@ -23,28 +23,46 @@ pub fn lr_d(cpu: &mut Cpu, rd: Reg, rs1: Reg) -> ExecResult {
     Ok(ExecFlow::Next)
 }
 
+// pub fn sc_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
+//     let addr = cpu.regs.read(rs1);
+//     if cpu.reservation_matches(addr) {
+//         Mmu::write32(cpu, addr, cpu.regs.read(rs2) as u32)?;
+//         cpu.regs.write(rd, 0);
+//     } else {
+//         cpu.regs.write(rd, 1);
+//     }
+//     cpu.clear_reservation();
+
+//     Ok(ExecFlow::Next)
+// }
+
+// pub fn sc_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
+//     let addr = cpu.regs.read(rs1);
+//     if cpu.reservation_matches(addr) {
+//         Mmu::write64(cpu, addr, cpu.regs.read(rs2))?;
+//         cpu.regs.write(rd, 0);
+//     } else {
+//         cpu.regs.write(rd, 1);
+//     }
+//     cpu.clear_reservation();
+
+//     Ok(ExecFlow::Next)
+// }
+
 pub fn sc_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
-    if cpu.reservation_matches(addr) {
-        Mmu::write32(cpu, addr, cpu.regs.read(rs2) as u32)?;
-        cpu.regs.write(rd, 0);
-    } else {
-        cpu.regs.write(rd, 1);
-    }
-    cpu.clear_reservation();
+    // Force write and force success
+    Mmu::write32(cpu, addr, cpu.regs.read(rs2) as u32)?;
+    cpu.regs.write(rd, 0);
 
     Ok(ExecFlow::Next)
 }
 
 pub fn sc_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
-    if cpu.reservation_matches(addr) {
-        Mmu::write64(cpu, addr, cpu.regs.read(rs2))?;
-        cpu.regs.write(rd, 0);
-    } else {
-        cpu.regs.write(rd, 1);
-    }
-    cpu.clear_reservation();
+    // Force write and force success
+    Mmu::write64(cpu, addr, cpu.regs.read(rs2))?;
+    cpu.regs.write(rd, 0);
 
     Ok(ExecFlow::Next)
 }
@@ -62,8 +80,8 @@ pub fn amoswap_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 
 pub fn amoswap_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
-    let old = cpu.bus.read64(addr)?;
-    cpu.bus.write64(addr, cpu.regs.read(rs2))?;
+    let old = Mmu::read64(cpu, addr)?;
+    Mmu::write64(cpu, addr, cpu.regs.read(rs2))?;
     cpu.regs.write(rd, old);
     cpu.clear_reservation();
 
@@ -84,10 +102,10 @@ pub fn amoadd_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 }
 pub fn amoadd_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
-    let old = cpu.bus.read64(addr)? as i64;
+    let old = Mmu::read64(cpu, addr)? as i64;
     let rhs = cpu.regs.read(rs2) as i64;
     let new = old.wrapping_add(rhs);
-    cpu.bus.write64(addr, new as u64)?;
+    Mmu::write64(cpu, addr, new as u64)?;
     cpu.regs.write(rd, old as u64);
     cpu.clear_reservation();
 
@@ -105,9 +123,9 @@ pub fn amoxor_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 }
 pub fn amoxor_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
-    let old = cpu.bus.read64(addr)?;
+    let old = Mmu::read64(cpu, addr)?;
     let rhs = cpu.regs.read(rs2);
-    cpu.bus.write64(addr, old ^ rhs)?;
+    Mmu::write64(cpu, addr, old ^ rhs)?;
     cpu.regs.write(rd, old);
     cpu.clear_reservation();
 
@@ -125,9 +143,9 @@ pub fn amoor_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 }
 pub fn amoor_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
-    let old = cpu.bus.read64(addr)?;
+    let old = Mmu::read64(cpu, addr)?;
     let rhs = cpu.regs.read(rs2);
-    cpu.bus.write64(addr, old | rhs)?;
+    Mmu::write64(cpu, addr, old | rhs)?;
     cpu.regs.write(rd, old);
     cpu.clear_reservation();
 
@@ -145,9 +163,9 @@ pub fn amoand_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 }
 pub fn amoand_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
-    let old = cpu.bus.read64(addr)?;
+    let old = Mmu::read64(cpu, addr)?;
     let rhs = cpu.regs.read(rs2);
-    cpu.bus.write64(addr, old & rhs)?;
+    Mmu::write64(cpu, addr, old & rhs)?;
     cpu.regs.write(rd, old);
     cpu.clear_reservation();
 
@@ -173,12 +191,12 @@ pub fn amomin_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 pub fn amomin_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
 
-    let old = cpu.bus.read64(addr)? as i64;
+    let old = Mmu::read64(cpu, addr)? as i64;
     let rhs = cpu.regs.read(rs2) as i64;
 
     let new = old.min(rhs);
 
-    cpu.bus.write64(addr, new as u64)?;
+    Mmu::write64(cpu, addr, new as u64)?;
     cpu.regs.write(rd, old as u64);
 
     cpu.clear_reservation();
@@ -203,12 +221,12 @@ pub fn amomax_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 pub fn amomax_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
 
-    let old = cpu.bus.read64(addr)? as i64;
+    let old = Mmu::read64(cpu, addr)? as i64;
     let rhs = cpu.regs.read(rs2) as i64;
 
     let new = old.max(rhs);
 
-    cpu.bus.write64(addr, new as u64)?;
+    Mmu::write64(cpu, addr, new as u64)?;
     cpu.regs.write(rd, old as u64);
 
     cpu.clear_reservation();
@@ -233,12 +251,12 @@ pub fn amominu_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 pub fn amominu_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
 
-    let old = cpu.bus.read64(addr)?;
+    let old = Mmu::read64(cpu, addr)?;
     let rhs = cpu.regs.read(rs2);
 
     let new = old.min(rhs);
 
-    cpu.bus.write64(addr, new)?;
+    Mmu::write64(cpu, addr, new)?;
     cpu.regs.write(rd, old);
 
     cpu.clear_reservation();
@@ -263,12 +281,12 @@ pub fn amomaxu_w(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
 pub fn amomaxu_d(cpu: &mut Cpu, rd: Reg, rs1: Reg, rs2: Reg) -> ExecResult {
     let addr = cpu.regs.read(rs1);
 
-    let old = cpu.bus.read64(addr)?;
+    let old = Mmu::read64(cpu, addr)?;
     let rhs = cpu.regs.read(rs2);
 
     let new = old.max(rhs);
 
-    cpu.bus.write64(addr, new)?;
+    Mmu::write64(cpu, addr, new)?;
     cpu.regs.write(rd, old);
 
     cpu.clear_reservation();

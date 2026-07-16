@@ -38,12 +38,16 @@ impl Bus {
     #[inline]
     fn ram_offset(&self, addr: u64, trap: Trap) -> Result<u64, Trap> {
         if addr < RAM_BASE {
+            #[cfg(debug_assertions)]
+            println!("BUS ERROR: Kernel attempted to access unmapped device at {:#018x}", addr);
             return Err(trap);
         }
 
         let offset = addr - RAM_BASE;
 
         if offset >= self.ram.size() as u64 {
+            #[cfg(debug_assertions)]
+            println!("BUS ERROR: Kernel attempted to access out-of-bounds RAM at {:#018x} (offset {:#x})", addr, offset);
             return Err(trap);
         }
 
@@ -63,7 +67,7 @@ impl Bus {
             return self.plic.read8(addr);
         }
 
-        let offset = self.ram_offset(addr, Trap::LoadAccessFault)?;
+        let offset = self.ram_offset(addr, Trap::LoadAccessFault(addr))?;
         self.ram.read8(offset)
     }
 
@@ -85,13 +89,13 @@ impl Bus {
                     return Err(Trap::LoadAddressMisaligned(addr));
                 }
 
-                let offset = self.ram_offset(addr, Trap::LoadAccessFault)?;
+                let offset = self.ram_offset(addr, Trap::LoadAccessFault(addr))?;
                 self.ram.read16(offset)
             }
 
             MisalignedAccess::Emulate => {
                 if addr & 1 == 0 {
-                    let offset = self.ram_offset(addr, Trap::LoadAccessFault)?;
+                    let offset = self.ram_offset(addr, Trap::LoadAccessFault(addr))?;
                     self.ram.read16(offset)
                 } else {
                     self.read16_emulated(addr)
@@ -118,13 +122,13 @@ impl Bus {
                     return Err(Trap::LoadAddressMisaligned(addr));
                 }
 
-                let offset = self.ram_offset(addr, Trap::LoadAccessFault)?;
+                let offset = self.ram_offset(addr, Trap::LoadAccessFault(addr))?;
                 self.ram.read32(offset)
             }
 
             MisalignedAccess::Emulate => {
                 if addr & 3 == 0 {
-                    let offset = self.ram_offset(addr, Trap::LoadAccessFault)?;
+                    let offset = self.ram_offset(addr, Trap::LoadAccessFault(addr))?;
                     self.ram.read32(offset)
                 } else {
                     self.read32_emulated(addr)
@@ -151,13 +155,13 @@ impl Bus {
                     return Err(Trap::LoadAddressMisaligned(addr));
                 }
 
-                let offset = self.ram_offset(addr, Trap::LoadAccessFault)?;
+                let offset = self.ram_offset(addr, Trap::LoadAccessFault(addr))?;
                 self.ram.read64(offset)
             }
 
             MisalignedAccess::Emulate => {
                 if addr & 7 == 0 {
-                    let offset = self.ram_offset(addr, Trap::LoadAccessFault)?;
+                    let offset = self.ram_offset(addr, Trap::LoadAccessFault(addr))?;
                     self.ram.read64(offset)
                 } else {
                     self.read64_emulated(addr)
@@ -179,7 +183,7 @@ impl Bus {
             return self.plic.write8(addr, value);
         }
 
-        let offset = self.ram_offset(addr, Trap::StoreAccessFault)?;
+        let offset = self.ram_offset(addr, Trap::StoreAccessFault(addr))?;
         self.ram.write8(offset, value)
     }
 
@@ -201,13 +205,13 @@ impl Bus {
                     return Err(Trap::StoreAddressMisaligned(addr));
                 }
 
-                let offset = self.ram_offset(addr, Trap::StoreAccessFault)?;
+                let offset = self.ram_offset(addr, Trap::StoreAccessFault(addr))?;
                 self.ram.write16(offset, value)
             }
 
             MisalignedAccess::Emulate => {
                 if addr & 1 == 0 {
-                    let offset = self.ram_offset(addr, Trap::StoreAccessFault)?;
+                    let offset = self.ram_offset(addr, Trap::StoreAccessFault(addr))?;
                     self.ram.write16(offset, value)
                 } else {
                     self.write16_emulated(addr, value)
@@ -234,13 +238,13 @@ impl Bus {
                     return Err(Trap::StoreAddressMisaligned(addr));
                 }
 
-                let offset = self.ram_offset(addr, Trap::StoreAccessFault)?;
+                let offset = self.ram_offset(addr, Trap::StoreAccessFault(addr))?;
                 self.ram.write32(offset, value)
             }
 
             MisalignedAccess::Emulate => {
                 if addr & 3 == 0 {
-                    let offset = self.ram_offset(addr, Trap::StoreAccessFault)?;
+                    let offset = self.ram_offset(addr, Trap::StoreAccessFault(addr))?;
                     self.ram.write32(offset, value)
                 } else {
                     self.write32_emulated(addr, value)
@@ -267,13 +271,13 @@ impl Bus {
                     return Err(Trap::StoreAddressMisaligned(addr));
                 }
 
-                let offset = self.ram_offset(addr, Trap::StoreAccessFault)?;
+                let offset = self.ram_offset(addr, Trap::StoreAccessFault(addr))?;
                 self.ram.write64(offset, value)
             }
 
             MisalignedAccess::Emulate => {
                 if addr & 7 == 0 {
-                    let offset = self.ram_offset(addr, Trap::StoreAccessFault)?;
+                    let offset = self.ram_offset(addr, Trap::StoreAccessFault(addr))?;
                     self.ram.write64(offset, value)
                 } else {
                     self.write64_emulated(addr, value)
@@ -283,7 +287,7 @@ impl Bus {
     }
 
     pub fn load(&mut self, addr: u64, bytes: &[u8]) -> Result<(), Trap> {
-        let offset = self.ram_offset(addr, Trap::StoreAccessFault)?;
+        let offset = self.ram_offset(addr, Trap::StoreAccessFault(addr))?;
         self.ram.load(offset, bytes)
     }
 

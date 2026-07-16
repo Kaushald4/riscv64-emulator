@@ -39,6 +39,10 @@ pub struct Cpu {
     pub csr: Csr,
     // reservation for LR/SC
     pub reservation: Option<u64>,
+
+    pub inst_count: u64,
+    pub trace: [u64; 100],
+    pub trace_idx: usize,
 }
 
 impl Cpu {
@@ -52,6 +56,10 @@ impl Cpu {
             privilege_mode: PrivilegeMode::Machine,
             csr: Csr::new(),
             reservation: None,
+
+            inst_count: 0,
+            trace: [0; 100],
+            trace_idx: 0,
         }
     }
 
@@ -73,21 +81,61 @@ impl Cpu {
     }
 
     pub fn step(&mut self) -> Result<(), Trap> {
+        // Print a heartbeat dot every 10 million instructions
+        // #[cfg(debug_assertions)] // Only in debug so it doesn't slow down release mode
+        // if self.inst_count % 10_000_000 == 0 {
+        //     use std::io::Write;
+        //     print!(".");
+        //     std::io::stdout().flush().unwrap();
+        // }
+        // Inside step()
+        self.trace[self.trace_idx] = self.pc;
+        self.trace_idx = (self.trace_idx + 1) % 100;
+
+        self.inst_count += 1;
+
+        if self.pc == 0xffffffff801465e8 {
+            println!("--- INSTRUCTION TRACE TO CRASH ---");
+            for i in 0..100 {
+                let idx = (self.trace_idx + i) % 100;
+                println!("{:#018x}", self.trace[idx]);
+            }
+            std::process::exit(1);
+        }
+        if self.inst_count % 5_000_000 == 0 {
+            println!("HEARTBEAT: PC = {:#018x}", self.pc);
+        }
+
         self.bus.clint.tick();
+
+        self.csr.time = self.bus.clint.mtime;
+
+        if self.bus.clint.mtime >= self.bus.clint.mtimecmp {
+            self.csr.mip |= 1 << 7;
+        } else {
+            self.csr.mip &= !(1 << 7);
+        }
+
+        if (self.bus.clint.msip & 1) != 0 {
+            self.csr.mip |= 1 << 3;
+        } else {
+            self.csr.mip &= !(1 << 3);
+        }
 
         if let Some(cause) = self.pending_interrupt() {
             self.handle_interrupt(cause)?;
             return Ok(());
         }
-        let raw = self.fetch()?;
 
-        // #[cfg(debug_assertions)]
-        // if self.pc >= 0x8001_B400 && self.pc <= 0x8001_B500 {
-        //     println!("{:#018x}: {:#010x}", self.pc, raw);
-        // }
+        let raw = match self.fetch() {
+            Ok(inst) => inst,
+            Err(trap) => {
+                self.handle_trap(trap)?;
+                return Ok(());
+            }
+        };
 
         let decoded = decode(raw);
-
         let length = decoded.length;
         self.current_instruction_length = length;
 
@@ -96,12 +144,10 @@ impl Cpu {
                 ExecFlow::Next => {
                     self.pc = self.pc.wrapping_add(length as u64);
                 }
-
                 ExecFlow::Jump(target) => {
                     self.pc = target;
                 }
             },
-
             Err(trap) => {
                 self.handle_trap(trap)?;
             }
@@ -161,21 +207,22 @@ impl Cpu {
         self.csr.sepc = self.pc;
 
         self.csr.scause = (1u64 << 63) | cause;
+        self.csr.stval = 0;
 
         // SPIE <- SIE
-        let sie = (self.csr.sstatus >> 1) & 1;
+        let sie = (self.csr.mstatus >> 1) & 1;
 
-        self.csr.sstatus &= !(1 << 5);
-        self.csr.sstatus |= sie << 5;
+        self.csr.mstatus &= !(1 << 5);
+        self.csr.mstatus |= sie << 5;
 
         // SIE <- 0
-        self.csr.sstatus &= !(1 << 1);
+        self.csr.mstatus &= !(1 << 1);
 
         // SPP <- previous privilege
-        self.csr.sstatus &= !(1 << 8);
+        self.csr.mstatus &= !(1 << 8);
 
         if self.privilege_mode == PrivilegeMode::Supervisor {
-            self.csr.sstatus |= 1 << 8;
+            self.csr.mstatus |= 1 << 8;
         }
 
         self.privilege_mode = PrivilegeMode::Supervisor;
@@ -194,21 +241,43 @@ impl Cpu {
 
     #[inline]
     pub fn pending_interrupt(&self) -> Option<u64> {
+        // Pending and individually enabled interrupts
         let pending = self.csr.mip & self.csr.mie;
-
-        // machine external interrupt
-        if (pending & (1 << 11)) != 0 {
-            return Some(11);
+        if pending == 0 {
+            return None;
         }
 
-        // machine software interrupt
-        if (pending & (1 << 3)) != 0 {
-            return Some(3);
+        // Global interrupt enables
+        let m_enabled = self.privilege_mode != PrivilegeMode::Machine || ((self.csr.mstatus >> 3) & 1) != 0; // mstatus.MIE
+
+        let s_enabled = self.privilege_mode == PrivilegeMode::User || (self.privilege_mode == PrivilegeMode::Supervisor && ((self.csr.mstatus >> 1) & 1) != 0); // mstatus.SIE
+
+        // M-mode interrupts (bits NOT set in mideleg)
+        let m_pending = pending & !self.csr.mideleg;
+        if m_enabled && m_pending != 0 {
+            if (m_pending & (1 << 11)) != 0 {
+                return Some(11);
+            } // Machine External
+            if (m_pending & (1 << 3)) != 0 {
+                return Some(3);
+            } // Machine Software
+            if (m_pending & (1 << 7)) != 0 {
+                return Some(7);
+            } // Machine Timer
         }
 
-        // machine timer interrupt
-        if (pending & (1 << 7)) != 0 {
-            return Some(7);
+        // S-mode interrupts (bits SET in mideleg)
+        let s_pending = pending & self.csr.mideleg;
+        if s_enabled && s_pending != 0 {
+            if (s_pending & (1 << 9)) != 0 {
+                return Some(9);
+            } // Supervisor External
+            if (s_pending & (1 << 1)) != 0 {
+                return Some(1);
+            } // Supervisor Software
+            if (s_pending & (1 << 5)) != 0 {
+                return Some(5);
+            } // Supervisor Timer
         }
 
         None
@@ -239,7 +308,10 @@ impl Cpu {
                 0
             }
 
-            Trap::InstructionAccessFault => 1,
+            Trap::InstructionAccessFault(addr) => {
+                self.csr.mtval = addr;
+                1
+            }
 
             Trap::IllegalInstruction(inst) => {
                 self.csr.mtval = inst as u64;
@@ -253,14 +325,20 @@ impl Cpu {
                 4
             }
 
-            Trap::LoadAccessFault => 5,
+            Trap::LoadAccessFault(addr) => {
+                self.csr.mtval = addr;
+                5
+            }
 
             Trap::StoreAddressMisaligned(addr) => {
                 self.csr.mtval = addr;
                 6
             }
 
-            Trap::StoreAccessFault => 7,
+            Trap::StoreAccessFault(addr) => {
+                self.csr.mtval = addr;
+                7
+            }
 
             Trap::EcallFromUMode => 8,
             Trap::EcallFromSMode => 9,
@@ -331,27 +409,33 @@ impl Cpu {
 
         #[cfg(debug_assertions)]
         {
-            println!("Trap: mcause={} mepc={:#018x} mtval={:#018x}", self.csr.mcause, self.csr.mepc, self.csr.mtval);
+            let is_interrupt = (self.csr.mcause >> 63) != 0;
+            if self.csr.mcause != 9 && !is_interrupt {
+                println!("Trap: mcause={} mepc={:#018x} mtval={:#018x}", self.csr.mcause, self.csr.mepc, self.csr.mtval);
+            }
         }
 
         Ok(())
     }
 
     fn handle_supervisor_trap(&mut self, trap: Trap) -> Result<(), Trap> {
-        // Save faulting PC.
+        // save faulting PC.
         self.csr.sepc = self.pc;
 
-        // Clear stval by default.
+        // clear stval by default.
         self.csr.stval = 0;
 
-        // Record trap cause.
+        // record trap cause.
         self.csr.scause = match trap {
             Trap::InstructionAddressMisaligned(addr) => {
                 self.csr.stval = addr;
                 0
             }
 
-            Trap::InstructionAccessFault => 1,
+            Trap::InstructionAccessFault(addr) => {
+                self.csr.stval = addr;
+                1
+            }
 
             Trap::IllegalInstruction(inst) => {
                 self.csr.stval = inst as u64;
@@ -365,14 +449,20 @@ impl Cpu {
                 4
             }
 
-            Trap::LoadAccessFault => 5,
+            Trap::LoadAccessFault(addr) => {
+                self.csr.stval = addr;
+                5
+            }
 
             Trap::StoreAddressMisaligned(addr) => {
                 self.csr.stval = addr;
                 6
             }
 
-            Trap::StoreAccessFault => 7,
+            Trap::StoreAccessFault(addr) => {
+                self.csr.stval = addr;
+                7
+            }
 
             Trap::EcallFromUMode => 8,
             Trap::EcallFromSMode => 9,
@@ -394,47 +484,33 @@ impl Cpu {
             }
         };
 
-        //
         // sstatus updates
-        //
 
         // SPIE <- SIE
-        let sie = (self.csr.sstatus >> 1) & 1;
+        let sie = (self.csr.mstatus >> 1) & 1;
+        self.csr.mstatus &= !(1 << 5);
+        self.csr.mstatus |= sie << 5;
 
-        self.csr.sstatus &= !(1 << 5);
-        self.csr.sstatus |= sie << 5;
+        self.csr.mstatus &= !(1 << 1);
 
-        // SIE <- 0
-        self.csr.sstatus &= !(1 << 1);
-
-        // SPP <- previous privilege
-        self.csr.sstatus &= !(1 << 8);
-
+        self.csr.mstatus &= !(1 << 8);
         if self.privilege_mode == PrivilegeMode::Supervisor {
-            self.csr.sstatus |= 1 << 8;
+            self.csr.mstatus |= 1 << 8;
         }
 
-        // Enter Supervisor mode.
+        // enter Supervisor mode.
         self.privilege_mode = PrivilegeMode::Supervisor;
 
-        //
         // Jump to stvec.
-        //
-
         let base = self.csr.stvec & !0b11;
         let mode = self.csr.stvec & 0b11;
 
         self.pc = match mode {
-            // Direct
             0 => base,
-
-            // Vectored (interrupts only)
             1 => {
                 let interrupt = (self.csr.scause >> 63) != 0;
-
                 if interrupt { base + ((self.csr.scause & !(1 << 63)) << 2) } else { base }
             }
-
             _ => base,
         };
 
@@ -445,13 +521,13 @@ impl Cpu {
     fn exception_cause(trap: &Trap) -> u64 {
         match trap {
             Trap::InstructionAddressMisaligned(_) => 0,
-            Trap::InstructionAccessFault => 1,
+            Trap::InstructionAccessFault(_) => 1,
             Trap::IllegalInstruction(_) => 2,
             Trap::Breakpoint => 3,
             Trap::LoadAddressMisaligned(_) => 4,
-            Trap::LoadAccessFault => 5,
+            Trap::LoadAccessFault(_) => 5,
             Trap::StoreAddressMisaligned(_) => 6,
-            Trap::StoreAccessFault => 7,
+            Trap::StoreAccessFault(_) => 7,
             Trap::EcallFromUMode => 8,
             Trap::EcallFromSMode => 9,
             Trap::EcallFromMMode => 11,

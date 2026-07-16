@@ -15,6 +15,8 @@ const MISA: u64 = MISA_MXL_RV64 | MISA_I | MISA_M | MISA_A | MISA_F | MISA_D | M
 pub const MSTATUS_MIE: u64 = 1 << 3;
 pub const MSTATUS_MPIE: u64 = 1 << 7;
 
+pub const SSTATUS_MASK: u64 = 0x8000_0003_000D_E162;
+
 // supervisor bits
 pub const MSTATUS_SIE: u64 = 1 << 1;
 pub const MSTATUS_SPIE: u64 = 1 << 5;
@@ -43,6 +45,9 @@ pub const CSR_MEPC: u16 = 0x341;
 pub const CSR_MCAUSE: u16 = 0x342;
 pub const CSR_MTVAL: u16 = 0x343;
 pub const CSR_MIP: u16 = 0x344;
+
+pub const CSR_CYCLE: u16 = 0xC00;
+pub const CSR_TIME: u16 = 0xC01;
 
 // supervisor
 pub const CSR_SATP: u16 = 0x180;
@@ -94,7 +99,6 @@ pub struct Csr {
     pub stval: u64,
     pub sscratch: u64,
     pub stvec: u64,
-    pub sstatus: u64,
 
     // PMP
     pub pmpcfg: [u64; 16],
@@ -104,6 +108,9 @@ pub struct Csr {
     pub fflags: u64,
     pub frm: u64,
     pub fcsr: u64,
+
+    pub time: u64,
+    pub cycle: u64,
 
     // everything else
     extra: HashMap<u16, u64>,
@@ -133,7 +140,6 @@ impl Csr {
             stval: 0,
             sscratch: 0,
             stvec: 0,
-            sstatus: 0,
 
             pmpcfg: [0; 16],
             pmpaddr: [0; 64],
@@ -141,6 +147,9 @@ impl Csr {
             fflags: 0,
             frm: 0,
             fcsr: 0,
+
+            time: 0,
+            cycle: 0,
 
             extra: HashMap::new(),
         }
@@ -168,7 +177,7 @@ impl Csr {
             CSR_SATP => Ok(self.satp),
 
             // supervisor
-            CSR_SSTATUS => Ok(self.sstatus),
+            CSR_SSTATUS => Ok(self.mstatus & SSTATUS_MASK),
             CSR_STVEC => Ok(self.stvec),
             CSR_SEPC => Ok(self.sepc),
             CSR_SCAUSE => Ok(self.scause),
@@ -182,6 +191,9 @@ impl Csr {
             CSR_FFLAGS => Ok(self.fflags),
             CSR_FRM => Ok(self.frm),
             CSR_FCSR => Ok(self.fcsr),
+
+            CSR_TIME => Ok(self.time),
+            CSR_CYCLE => Ok(self.cycle),
 
             0x3A0..=0x3AF => Ok(self.pmpcfg[(csr - 0x3A0) as usize]),
 
@@ -210,7 +222,10 @@ impl Csr {
             CSR_SATP => self.satp = value,
 
             // supervisor
-            CSR_SSTATUS => self.sstatus = value,
+            // Replace the old CSR_SSTATUS line with this:
+            CSR_SSTATUS => {
+                self.mstatus = (self.mstatus & !SSTATUS_MASK) | (value & SSTATUS_MASK);
+            }
             CSR_STVEC => self.stvec = value,
             CSR_SEPC => self.sepc = value,
             CSR_SCAUSE => self.scause = value,
@@ -263,12 +278,12 @@ impl Csr {
 
     #[inline]
     pub fn sum(&self) -> bool {
-        ((self.sstatus >> 18) & 1) != 0
+        ((self.mstatus >> 18) & 1) != 0
     }
 
     #[inline]
     pub fn mxr(&self) -> bool {
-        ((self.sstatus >> 19) & 1) != 0
+        ((self.mstatus >> 19) & 1) != 0
     }
 
     #[inline]
