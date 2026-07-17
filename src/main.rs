@@ -73,5 +73,11 @@ fn main() -> Result<(), Trap> {
         }
 
         cpu.step()?;
+
+        if main_clock % 1_000 == 0 {
+            if cpu.wfi {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
     }
 }

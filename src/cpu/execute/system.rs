@@ -100,8 +100,8 @@ pub fn sfence_vma(cpu: &mut Cpu, rs1: Reg, rs2: Reg) -> ExecResult {
     Ok(ExecFlow::Next)
 }
 
-pub fn wfi(_cpu: &mut Cpu) -> ExecResult {
-    // no until interrupts are implemented.
+pub fn wfi(cpu: &mut Cpu) -> ExecResult {
+    cpu.wfi = true;
     Ok(ExecFlow::Next)
 }
 

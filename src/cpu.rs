@@ -46,6 +46,7 @@ pub struct Cpu {
     pub decode_cache: [DecodeEntry; 4096],
     // reservation for LR/SC
     pub reservation: Option<u64>,
+    pub wfi: bool,
 
     pub clock: u64,
 }
@@ -63,6 +64,7 @@ impl Cpu {
             tlb: Tlb::new(),
             decode_cache: [DecodeEntry::default(); 4096],
             reservation: None,
+            wfi: false,
 
             clock: 0,
         }
@@ -134,10 +136,20 @@ impl Cpu {
         }
 
         if (self.csr.mip & self.csr.mie) != 0 {
+            // wakeup
+            self.wfi = false;
+        }
+
+        if (self.csr.mip & self.csr.mie) != 0 {
             if let Some(cause) = self.pending_interrupt() {
                 self.handle_interrupt(cause)?;
                 return Ok(());
             }
+        }
+
+        // sleeping in idle do't do anything
+        if self.wfi {
+            return Ok(());
         }
 
         let cache_index = ((self.pc >> 1) % 4096) as usize;
