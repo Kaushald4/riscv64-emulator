@@ -63,8 +63,17 @@ impl Bus {
     }
 
     // reads
-    #[inline]
+    #[inline(always)]
     pub fn read8(&mut self, addr: u64) -> Result<u8, Trap> {
+        if addr >= RAM_BASE {
+            if let Ok(offset) = self.ram_offset(addr, Trap::LoadAccessFault(addr)) {
+                if matches!(self.misaligned, MisalignedAccess::Trap) && addr & 3 != 0 {
+                    return Err(Trap::LoadAddressMisaligned(addr));
+                }
+                return self.ram.read8(offset);
+            }
+        }
+
         if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
             return self.clint.read8(addr);
         }
@@ -79,8 +88,17 @@ impl Bus {
         self.ram.read8(offset)
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn read16(&mut self, addr: u64) -> Result<u16, Trap> {
+        if addr >= RAM_BASE {
+            if let Ok(offset) = self.ram_offset(addr, Trap::LoadAccessFault(addr)) {
+                if matches!(self.misaligned, MisalignedAccess::Trap) && addr & 3 != 0 {
+                    return Err(Trap::LoadAddressMisaligned(addr));
+                }
+                return self.ram.read16(offset);
+            }
+        }
+
         if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
             return self.clint.read16(addr);
         }
@@ -91,29 +109,24 @@ impl Bus {
             return self.plic.read16(addr);
         }
 
-        match self.misaligned {
-            MisalignedAccess::Trap => {
-                if addr & 1 != 0 {
-                    return Err(Trap::LoadAddressMisaligned(addr));
-                }
-
-                let offset = self.ram_offset(addr, Trap::LoadAccessFault(addr))?;
-                self.ram.read16(offset)
-            }
-
-            MisalignedAccess::Emulate => {
-                if addr & 1 == 0 {
-                    let offset = self.ram_offset(addr, Trap::LoadAccessFault(addr))?;
-                    self.ram.read16(offset)
-                } else {
-                    self.read16_emulated(addr)
-                }
-            }
+        if matches!(self.misaligned, MisalignedAccess::Emulate) && addr & 3 != 0 {
+            return self.read16_emulated(addr);
         }
+
+        Err(Trap::LoadAccessFault(addr))
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn read32(&mut self, addr: u64) -> Result<u32, Trap> {
+        if addr >= RAM_BASE {
+            if let Ok(offset) = self.ram_offset(addr, Trap::LoadAccessFault(addr)) {
+                if matches!(self.misaligned, MisalignedAccess::Trap) && addr & 3 != 0 {
+                    return Err(Trap::LoadAddressMisaligned(addr));
+                }
+                return self.ram.read32(offset);
+            }
+        }
+
         if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
             return self.clint.read32(addr);
         }
@@ -127,29 +140,23 @@ impl Bus {
             return Ok(self.virtio.read32(addr - VIRTIO_BASE));
         }
 
-        match self.misaligned {
-            MisalignedAccess::Trap => {
-                if addr & 3 != 0 {
-                    return Err(Trap::LoadAddressMisaligned(addr));
-                }
-
-                let offset = self.ram_offset(addr, Trap::LoadAccessFault(addr))?;
-                self.ram.read32(offset)
-            }
-
-            MisalignedAccess::Emulate => {
-                if addr & 3 == 0 {
-                    let offset = self.ram_offset(addr, Trap::LoadAccessFault(addr))?;
-                    self.ram.read32(offset)
-                } else {
-                    self.read32_emulated(addr)
-                }
-            }
+        if matches!(self.misaligned, MisalignedAccess::Emulate) && addr & 3 != 0 {
+            return self.read32_emulated(addr);
         }
+
+        Err(Trap::LoadAccessFault(addr))
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn read64(&mut self, addr: u64) -> Result<u64, Trap> {
+        if addr >= RAM_BASE {
+            if let Ok(offset) = self.ram_offset(addr, Trap::LoadAccessFault(addr)) {
+                if matches!(self.misaligned, MisalignedAccess::Trap) && addr & 3 != 0 {
+                    return Err(Trap::LoadAddressMisaligned(addr));
+                }
+                return self.ram.read64(offset);
+            }
+        }
         if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
             return self.clint.read64(addr);
         }
@@ -160,29 +167,15 @@ impl Bus {
             return self.plic.read64(addr);
         }
 
-        match self.misaligned {
-            MisalignedAccess::Trap => {
-                if addr & 7 != 0 {
-                    return Err(Trap::LoadAddressMisaligned(addr));
-                }
-
-                let offset = self.ram_offset(addr, Trap::LoadAccessFault(addr))?;
-                self.ram.read64(offset)
-            }
-
-            MisalignedAccess::Emulate => {
-                if addr & 7 == 0 {
-                    let offset = self.ram_offset(addr, Trap::LoadAccessFault(addr))?;
-                    self.ram.read64(offset)
-                } else {
-                    self.read64_emulated(addr)
-                }
-            }
+        if matches!(self.misaligned, MisalignedAccess::Emulate) && addr & 3 != 0 {
+            return self.read64_emulated(addr);
         }
+
+        Err(Trap::LoadAccessFault(addr))
     }
 
     // writes
-    #[inline]
+    #[inline(always)]
     pub fn write8(&mut self, addr: u64, value: u8) -> Result<(), Trap> {
         if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
             return self.clint.write8(addr, value);
@@ -198,8 +191,18 @@ impl Bus {
         self.ram.write8(offset, value)
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn write16(&mut self, addr: u64, value: u16) -> Result<(), Trap> {
+        if addr >= RAM_BASE {
+            if let Ok(offset) = self.ram_offset(addr, Trap::StoreAccessFault(addr)) {
+                if matches!(self.misaligned, MisalignedAccess::Trap) && addr & 1 != 0 {
+                    return Err(Trap::StoreAddressMisaligned(addr));
+                }
+
+                return self.ram.write16(offset, value);
+            }
+        }
+
         if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
             return self.clint.write16(addr, value);
         }
@@ -210,29 +213,25 @@ impl Bus {
             return self.plic.write16(addr, value);
         }
 
-        match self.misaligned {
-            MisalignedAccess::Trap => {
-                if addr & 1 != 0 {
+        if matches!(self.misaligned, MisalignedAccess::Emulate) && addr & 1 != 0 {
+            return self.write16_emulated(addr, value);
+        }
+
+        Err(Trap::StoreAccessFault(addr))
+    }
+
+    #[inline(always)]
+    pub fn write32(&mut self, addr: u64, value: u32) -> Result<(), Trap> {
+        if addr >= RAM_BASE {
+            if let Ok(offset) = self.ram_offset(addr, Trap::StoreAccessFault(addr)) {
+                if matches!(self.misaligned, MisalignedAccess::Trap) && addr & 1 != 0 {
                     return Err(Trap::StoreAddressMisaligned(addr));
                 }
 
-                let offset = self.ram_offset(addr, Trap::StoreAccessFault(addr))?;
-                self.ram.write16(offset, value)
-            }
-
-            MisalignedAccess::Emulate => {
-                if addr & 1 == 0 {
-                    let offset = self.ram_offset(addr, Trap::StoreAccessFault(addr))?;
-                    self.ram.write16(offset, value)
-                } else {
-                    self.write16_emulated(addr, value)
-                }
+                return self.ram.write32(offset, value);
             }
         }
-    }
 
-    #[inline]
-    pub fn write32(&mut self, addr: u64, value: u32) -> Result<(), Trap> {
         if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
             return self.clint.write32(addr, value);
         }
@@ -247,29 +246,25 @@ impl Bus {
             return Ok(());
         }
 
-        match self.misaligned {
-            MisalignedAccess::Trap => {
-                if addr & 3 != 0 {
+        if matches!(self.misaligned, MisalignedAccess::Emulate) && addr & 1 != 0 {
+            return self.write32_emulated(addr, value);
+        }
+
+        Err(Trap::StoreAccessFault(addr))
+    }
+
+    #[inline(always)]
+    pub fn write64(&mut self, addr: u64, value: u64) -> Result<(), Trap> {
+        if addr >= RAM_BASE {
+            if let Ok(offset) = self.ram_offset(addr, Trap::StoreAccessFault(addr)) {
+                if matches!(self.misaligned, MisalignedAccess::Trap) && addr & 1 != 0 {
                     return Err(Trap::StoreAddressMisaligned(addr));
                 }
 
-                let offset = self.ram_offset(addr, Trap::StoreAccessFault(addr))?;
-                self.ram.write32(offset, value)
-            }
-
-            MisalignedAccess::Emulate => {
-                if addr & 3 == 0 {
-                    let offset = self.ram_offset(addr, Trap::StoreAccessFault(addr))?;
-                    self.ram.write32(offset, value)
-                } else {
-                    self.write32_emulated(addr, value)
-                }
+                return self.ram.write64(offset, value);
             }
         }
-    }
 
-    #[inline]
-    pub fn write64(&mut self, addr: u64, value: u64) -> Result<(), Trap> {
         if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
             return self.clint.write64(addr, value);
         }
@@ -280,25 +275,11 @@ impl Bus {
             return self.plic.write64(addr, value);
         }
 
-        match self.misaligned {
-            MisalignedAccess::Trap => {
-                if addr & 7 != 0 {
-                    return Err(Trap::StoreAddressMisaligned(addr));
-                }
-
-                let offset = self.ram_offset(addr, Trap::StoreAccessFault(addr))?;
-                self.ram.write64(offset, value)
-            }
-
-            MisalignedAccess::Emulate => {
-                if addr & 7 == 0 {
-                    let offset = self.ram_offset(addr, Trap::StoreAccessFault(addr))?;
-                    self.ram.write64(offset, value)
-                } else {
-                    self.write64_emulated(addr, value)
-                }
-            }
+        if matches!(self.misaligned, MisalignedAccess::Emulate) && addr & 1 != 0 {
+            return self.write64_emulated(addr, value);
         }
+
+        Err(Trap::StoreAccessFault(addr))
     }
 
     pub fn load(&mut self, addr: u64, bytes: &[u8]) -> Result<(), Trap> {

@@ -12,7 +12,7 @@ use crate::{
         Device,
         virtio::{descriptor::VirtqDesc, request::VirtIOBlkReqHeader},
     },
-    mmu::Mmu,
+    mmu::{Mmu, tlb::Tlb},
     trap::Trap,
 };
 
@@ -41,10 +41,11 @@ pub struct Cpu {
     pub current_instruction_length: u8,
     pub privilege_mode: PrivilegeMode,
     pub csr: Csr,
+    pub tlb: Tlb,
     // reservation for LR/SC
     pub reservation: Option<u64>,
 
-    pub inst_count: u64,
+    pub clock: u64,
 }
 
 impl Cpu {
@@ -57,9 +58,10 @@ impl Cpu {
             current_instruction_length: 4,
             privilege_mode: PrivilegeMode::Machine,
             csr: Csr::new(),
+            tlb: Tlb::new(),
             reservation: None,
 
-            inst_count: 0,
+            clock: 0,
         }
     }
 
@@ -68,28 +70,26 @@ impl Cpu {
             return Err(Trap::InstructionAddressMisaligned(self.pc));
         }
 
-        let first = Mmu::read16(self, self.pc)?;
+        if (self.pc & 0xFFF) <= 0xFFC {
+            let word = Mmu::fetch32(self, self.pc)?;
 
-        if first & 0b11 != 0b11 {
-            Ok(first as u32)
+            if word & 0b11 != 0b11 { Ok(word & 0xFFFF) } else { Ok(word) }
         } else {
-            // let second = self.bus.read16(self.pc + 2)?;
-            let second = Mmu::read16(self, self.pc + 2)?;
+            let first = Mmu::fetch16(self, self.pc)?;
 
-            Ok((first as u32) | ((second as u32) << 16))
+            if first & 0b11 != 0b11 {
+                Ok(first as u32)
+            } else {
+                let second = Mmu::fetch16(self, self.pc + 2)?;
+                Ok((first as u32) | ((second as u32) << 16))
+            }
         }
     }
 
     pub fn step(&mut self) -> Result<(), Trap> {
+        self.clock = self.clock.wrapping_add(1);
+
         self.bus.tick();
-
-        if let Some(queue) = self.bus.virtio.take_queue_notify() {
-            self.process_virtio_queue(queue)?;
-        }
-
-        #[cfg(debug_assertions)]
-        self.debug_print();
-
         self.csr.time = self.bus.clint.mtime;
 
         if self.bus.clint.mtime >= self.bus.clint.mtimecmp {
@@ -99,42 +99,42 @@ impl Cpu {
         }
 
         if self.bus.clint.mtime >= self.csr.stimecmp {
-            // set STIP
             self.csr.mip |= 1 << 5;
         } else {
-            // clear STIP
             self.csr.mip &= !(1 << 5);
         }
 
-        // software interrupt (MSIP)
         if (self.bus.clint.msip & 1) != 0 {
-            // set MSIP
             self.csr.mip |= 1 << 3;
         } else {
-            // clear MSIP
             self.csr.mip &= !(1 << 3);
         }
 
-        // evaluate external interrupts from PLIC
-        let (meip, seip) = self.bus.plic.evaluate_interrupt();
+        if self.clock % 1000 == 0 {
+            if let Some(queue) = self.bus.virtio.take_queue_notify() {
+                self.process_virtio_queue(queue)?;
+            }
 
-        // machine external interrupt pending (Bit 11)
-        if meip {
-            self.csr.mip |= 1 << 11;
-        } else {
-            self.csr.mip &= !(1 << 11);
+            let (meip, seip) = self.bus.plic.evaluate_interrupt();
+
+            if meip {
+                self.csr.mip |= 1 << 11;
+            } else {
+                self.csr.mip &= !(1 << 11);
+            }
+
+            if seip {
+                self.csr.mip |= 1 << 9;
+            } else {
+                self.csr.mip &= !(1 << 9);
+            }
         }
 
-        // supervisor external interrupt pending (Bit 9)
-        if seip {
-            self.csr.mip |= 1 << 9;
-        } else {
-            self.csr.mip &= !(1 << 9);
-        }
-
-        if let Some(cause) = self.pending_interrupt() {
-            self.handle_interrupt(cause)?;
-            return Ok(());
+        if (self.csr.mip & self.csr.mie) != 0 {
+            if let Some(cause) = self.pending_interrupt() {
+                self.handle_interrupt(cause)?;
+                return Ok(());
+            }
         }
 
         let raw = match self.fetch() {
@@ -196,7 +196,7 @@ impl Cpu {
 
             let desc_table = self.bus.virtio.queues[q_idx].desc_table;
 
-            // Read the 3-part descriptor chain (Header -> Data -> Status)
+            // read the 3-part descriptor chain (Header -> Data -> Status)
             let desc0 = self.read_virtq_desc(desc_table + (desc_index as u64 * 16))?;
             let desc1 = self.read_virtq_desc(desc_table + (desc0.next as u64 * 16))?;
             let desc2 = self.read_virtq_desc(desc_table + (desc1.next as u64 * 16))?;
@@ -406,8 +406,8 @@ impl Cpu {
     }
 
     fn debug_print(&mut self) {
-        self.inst_count += 1;
-        if self.inst_count % 5_000_000 == 0 {
+        self.clock += 1;
+        if self.clock % 5_000_000 == 0 {
             let stip = (self.csr.mip >> 5) & 1;
             println!("HEARTBEAT: PC = {:#018x} | mtime = {:<20} | stimecmp = {:<20} | STIP = {}", self.pc, self.bus.clint.mtime, self.csr.stimecmp, stip);
         }

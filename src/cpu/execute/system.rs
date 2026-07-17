@@ -75,8 +75,24 @@ pub fn sret(cpu: &mut Cpu) -> ExecResult {
     Ok(ExecFlow::Jump(cpu.csr.sepc))
 }
 
-pub fn sfence_vma(_cpu: &mut Cpu, _rs1: Reg, _rs2: Reg) -> ExecResult {
-    // no until a TLB is implemented.
+pub fn sfence_vma(cpu: &mut Cpu, rs1: Reg, rs2: Reg) -> ExecResult {
+    let vaddr = cpu.regs.read(rs1);
+    let asid = cpu.regs.read(rs2) as u16;
+
+    if vaddr == 0 && asid == 0 {
+        // SFENCE.VMA x0, x0
+        cpu.tlb.flush_all();
+    } else if vaddr == 0 && asid != 0 {
+        // SFENCE.VMA x0, rs2
+        cpu.tlb.flush_asid(asid);
+    } else if vaddr != 0 && asid == 0 {
+        // SFENCE.VMA rs1, x0
+        cpu.tlb.flush_page(vaddr, 0, true);
+    } else {
+        // SFENCE.VMA rs1, rs2
+        cpu.tlb.flush_page(vaddr, asid, false);
+    }
+
     Ok(ExecFlow::Next)
 }
 

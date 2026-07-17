@@ -11,7 +11,7 @@ const DTB_ADDR: u64 = RAM_BASE + 0x2200000;
 const KERNEL_ADDR: u64 = 0x8020_0000;
 
 fn main() -> Result<(), Trap> {
-    terminal::enable_raw_mode().unwrap();
+    // terminal::enable_raw_mode().unwrap();
 
     let (tx, rx) = mpsc::channel::<u8>();
 
@@ -58,14 +58,21 @@ fn main() -> Result<(), Trap> {
     cpu.regs.write(Reg::new(11), DTB_ADDR);
 
     println!("Booting OpenSBI...");
-
+    let mut main_clock = 0u64;
     loop {
-        if let Ok(byte) = rx.try_recv() {
-            cpu.bus.uart.push_rx(byte);
-        }
+        main_clock = main_clock.wrapping_add(1);
 
-        if cpu.bus.uart.is_interrupting() {
-            cpu.bus.plic.trigger_interrupt(10);
+        if main_clock % 10_000 == 0 {
+            if let Ok(byte) = rx.try_recv() {
+                let should_interrupt = cpu.bus.uart.push_rx(byte);
+                if should_interrupt {
+                    cpu.bus.plic.trigger_interrupt(10);
+                }
+            }
+
+            if cpu.bus.uart.is_interrupting() {
+                cpu.bus.plic.trigger_interrupt(10);
+            }
         }
         cpu.step()?;
     }

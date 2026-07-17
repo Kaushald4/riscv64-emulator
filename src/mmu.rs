@@ -8,6 +8,7 @@ pub mod access_type;
 pub mod address;
 pub mod pte;
 pub mod satp;
+pub mod tlb;
 pub mod translation;
 pub mod walker;
 
@@ -114,6 +115,34 @@ impl Mmu {
                 cpu.bus.write8(pa, ((value >> (i * 8)) & 0xFF) as u8)?;
             }
             Ok(())
+        }
+    }
+
+    pub fn fetch16(cpu: &mut Cpu, addr: u64) -> Result<u16, Trap> {
+        if (addr & 0xFFF) + 2 <= 0x1000 {
+            let pa = Mmu::translate(cpu, addr, AccessType::Instruction)?;
+            cpu.bus.read16(pa)
+        } else {
+            let mut value = 0u16;
+            for i in 0..2 {
+                let pa = Mmu::translate(cpu, addr + i, AccessType::Instruction)?;
+                value |= (cpu.bus.read8(pa)? as u16) << (i * 8);
+            }
+            Ok(value)
+        }
+    }
+
+    pub fn fetch32(cpu: &mut Cpu, addr: u64) -> Result<u32, Trap> {
+        if (addr & 0xFFF) + 4 <= 0x1000 {
+            let pa = Mmu::translate(cpu, addr, AccessType::Instruction)?;
+            cpu.bus.read32(pa)
+        } else {
+            let mut value = 0u32;
+            for i in 0..4 {
+                let pa = Mmu::translate(cpu, addr + i, AccessType::Instruction)?;
+                value |= (cpu.bus.read8(pa)? as u32) << (i * 8);
+            }
+            Ok(value)
         }
     }
 }

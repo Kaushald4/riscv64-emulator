@@ -119,11 +119,10 @@ impl Uart {
                 } else {
                     self.thr = value;
                     print!("{}", value as char);
-                    io::stdout().flush().unwrap();
+                    if value == b'\n' {
+                        io::stdout().flush().unwrap();
+                    }
 
-                    // --- CRITICAL FIX: TX Interrupt ---
-                    // Since printing to the terminal is instant, the transmit buffer is immediately empty again.
-                    // If Linux has TX interrupts enabled (IER bit 1), we flag an interrupt immediately!
                     if (self.ier & 0x02) != 0 {
                         self.tx_int_pending = true;
                     }
