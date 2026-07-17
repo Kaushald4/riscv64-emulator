@@ -7,12 +7,26 @@
 
 A 64-bit RISC-V emulator, written from scratch in Rust targeting RV64IMACFD, with the eventual goal of booting a real Linux distribution both natively and in the browser via WebAssembly.
 
-> **Status:** I'm building this incrementally, and documenting the process as I go. Progress is tracked in the [Roadmap](#roadmap) below.
+> **Status:** coding incrementally with active performance profiling. Current milestone progress is tracked in the [Roadmap](#roadmap) below.
 
 ---
+## 🤌 Linux Kernel Booting & Hyper-Optimizations
 
-## Booted OpenSBI firmware
-![opensbiboot](./screenshots/opensbi.jpg)
+The emulator successfully initializes OpenSBI, boots a custom Linux 6.6 kernel, and mounts an Ext4 root filesystem via automated VirtIO-Block DMA transfers. 
+
+By prioritizing micro-architectural profiling and fixing the interpreter hot paths, the end-to-end boot time is reduced from **over 60 seconds down to under 4 seconds**.
+
+### 🛠️ Key Performance Implementations:
+* **Instruction Decode Cache (L1i)**: Dramatically reduced fetch/decode overhead by using an instruction cache which stored decoded instruction pointers by PC, eliminating redundant decoding passes for a 25% reduction in total instruction decode volume.
+* **Software TLB Caching**: Optimized virtual memory management by using cached TLB entries from the MMU to avoid costly multi-level page walks on subsequent page table walks.
+Native Slice DMA: Eliminated slow byte-wise memory copies for VirtIO storage devices by performing slice extractions directly from the host’s memory space.
+* **Hardware-Accurate `WFI` (Wait For Interrupt)**: Full implementation of the RISC-V idle state by using WFI to allow the emulator to yield execution back to the host when the Linux shell is in an idle state, reducing host CPU consumption to near 0% for guest cores.
+
+![Linux Kernel Booting](./screenshots/linux_kernel_filesystem.jpg)
+
+*Efficient host CPU utilization under idle states:*
+![Idle CPU Utilization](./screenshots/idle.jpg)
+
 
 ## Motivation behind taking this challenge
 
@@ -44,9 +58,10 @@ If you're also learning RISC-V or emulator internals, I'd genuinely love feedbac
 - [X] UART (NS16550A) - serial console
 - [X] SBI - Supervisor Binary Interface, OpenSBI boot support
 - [X] Sv39 virtual memory - 3-level page table walker
-- [ ] TLB (Caching)
-- [ ] VirtIO block device
-- [ ] Boots a minimal Linux (Alpine) rootfs
+- [X] TLB (Caching)
+- [X] VirtIO block device
+- [X] Boots a minimal Linux (Alpine) rootfs
+- [ ] Add VirtIO - network device
 - [ ] WebAssembly build target - Linux, in a browser tab
 
 ## Roadmap
@@ -60,16 +75,75 @@ I'm building this in deliberate, testable phases rather than jumping straight fo
 | 2     | Pass `riscv-tests` (`rv64ui` / `um` / `uc` / `ua`)  |  Done       |
 | 3     | Privilege levels, trap/exception handling, CLINT    |  Done       |
 | 4     | UART console, SBI implementation, OpenSBI boot      |  Done       |
-| 5     | RV64F/D floating point (pass `rv64uf` / `ud` tests) |  Done       |
-| 6     | Sv39 MMU — page table walker, TLB                   |  Started    |
-| 7     | PLIC, VirtIO block device, Alpine rootfs boot       | Not started |
-| 8     | WASM build, browser boot                            | Not started |
+| 5     | RV64F/D floating point (pass `rv64uf` / `ud` tests)  |  Done       |
+| 6     | Sv39 MMU — page table walker, TLB                   |  Done       | 
+| 7     | PLIC, VirtIO block device, Alpine rootfs boot       |  Done       |
+| 8     | VirtIO network device                               | Not started |
+| 9     | WASM build, browser boot                            | Not started |
 
 I'll keep this table updated as phases land - check the commit history or releases for the details behind each one.
 
 ## Architecture
-
-I will update as i progress.
+I am heavily organizing it to make it scalable and easy to read. 
+```
+src/
+├─ cpu/
+│  ├─ execute/
+│  │  ├─ csr_execute.rs
+│  │  ├─ fp.rs
+│  │  ├─ helper.rs
+│  │  ├─ rv64a.rs
+│  │  ├─ rv64d.rs
+│  │  ├─ rv64f.rs
+│  │  ├─ rv64i.rs
+│  │  ├─ rv64m.rs
+│  │  ├─ rv64u.rs
+│  │  └─ system.rs
+│  ├─ bus.rs
+│  ├─ csr.rs
+│  ├─ decoder_cache.rs
+│  ├─ execute.rs
+│  ├─ f_register.rs
+│  ├─ memory.rs
+│  └─ register.rs
+├─ decode/
+│  ├─ c_formats.rs
+│  ├─ compressed.rs
+│  ├─ f_formats.rs
+│  ├─ formats.rs
+│  ├─ rv32_64.rs
+│  └─ rv64fd.rs
+├─ devices/
+│  ├─ virtio/
+│  │  ├─ block.rs
+│  │  ├─ config.rs
+│  │  ├─ descriptor.rs
+│  │  ├─ features.rs
+│  │  ├─ mmio.rs
+│  │  ├─ queue.rs
+│  │  └─ request.rs
+│  ├─ clint.rs
+│  ├─ plic.rs
+│  ├─ uart.rs
+│  └─ virtio.rs
+├─ mmu/
+│  ├─ access_type.rs
+│  ├─ address.rs
+│  ├─ pte.rs
+│  ├─ satp.rs
+│  ├─ tlb.rs
+│  ├─ translation.rs
+│  └─ walker.rs
+├─ cpu.rs
+├─ decode.rs
+├─ devices.rs
+├─ instruction.rs
+├─ lib.rs
+├─ main.rs
+├─ mmu.rs
+├─ opcode.rs
+└─ trap.rs
+```
 
 ## Getting Started
 
