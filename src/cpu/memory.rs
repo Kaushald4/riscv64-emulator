@@ -9,6 +9,13 @@ impl Memory {
         Self { data: vec![0; size] }
     }
 
+    pub fn read_bulk(&self, addr: u64, buffer: &mut [u8]) -> Result<(), Trap> {
+        let addr = addr as usize;
+        let slice = self.data.get(addr..addr + buffer.len()).ok_or(Trap::LoadAccessFault(addr as u64))?;
+        buffer.copy_from_slice(slice);
+        Ok(())
+    }
+
     #[inline(always)]
     pub fn read8(&self, addr: u64) -> Result<u8, Trap> {
         let addr = addr as usize;

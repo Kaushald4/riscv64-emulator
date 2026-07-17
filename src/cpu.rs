@@ -211,39 +211,49 @@ impl Cpu {
 
             let desc_table = self.bus.virtio.queues[q_idx].desc_table;
 
-            // read the 3-part descriptor chain (Header -> Data -> Status)
-            let desc0 = self.read_virtq_desc(desc_table + (desc_index as u64 * 16))?;
-            let desc1 = self.read_virtq_desc(desc_table + (desc0.next as u64 * 16))?;
-            let desc2 = self.read_virtq_desc(desc_table + (desc1.next as u64 * 16))?;
+            let initial_desc = self.read_virtq_desc(desc_table + (desc_index as u64 * 16))?;
+
+            let (desc0, desc1, desc2) = if initial_desc.flags & 0x04 != 0 {
+                let indirect_table = initial_desc.addr;
+
+                let d0 = self.read_virtq_desc(indirect_table)?;
+                let d1 = self.read_virtq_desc(indirect_table + (d0.next as u64 * 16))?;
+                let d2 = self.read_virtq_desc(indirect_table + (d1.next as u64 * 16))?;
+
+                (d0, d1, d2)
+            } else {
+                let d0 = initial_desc;
+                let d1 = self.read_virtq_desc(desc_table + (d0.next as u64 * 16))?;
+                let d2 = self.read_virtq_desc(desc_table + (d1.next as u64 * 16))?;
+
+                (d0, d1, d2)
+            };
 
             let header = self.read_blk_req_header(desc0.addr)?;
             let mut written_len = 0;
 
             match header.request_type {
                 0 => {
-                    // read (Disk -> RAM)
+                    // Read (Disk -> RAM)
                     let length = desc1.len as usize;
                     let start = header.sector as usize * 512;
 
-                    // TODO: Improve this for performance
-                    // read byte-by-byte (temp only to pass the borrow checking error)
-                    for i in 0..length {
-                        let byte = self.bus.virtio.device.image[start + i];
-                        self.bus.write8(desc1.addr + i as u64, byte)?;
-                    }
+                    let disk_chunk = self.bus.virtio.device.image[start..start + length].to_vec();
+
+                    self.bus.write_dma(desc1.addr, &disk_chunk)?;
 
                     self.bus.write8(desc2.addr, 0)?;
                     written_len = length as u32 + 1;
                 }
                 1 => {
-                    // write (RAM -> Disk)
+                    // Write (RAM -> Disk)
                     let length = desc1.len as usize;
                     let start = header.sector as usize * 512;
 
-                    for i in 0..length {
-                        let byte = self.bus.read8(desc1.addr + i as u64)?;
-                        self.bus.virtio.device.image[start + i] = byte;
-                    }
+                    let mut buffer = vec![0u8; length];
+                    self.bus.read_dma(desc1.addr, &mut buffer)?;
+
+                    self.bus.virtio.device.image[start..start + length].copy_from_slice(&buffer);
 
                     self.bus.write8(desc2.addr, 0)?;
                     written_len = 1;
@@ -254,7 +264,6 @@ impl Cpu {
                 }
             }
 
-            // populate the USED ring
             let used_ring = self.bus.virtio.queues[q_idx].used_ring;
             let used_idx = self.bus.read16(used_ring + 2)?;
             let used_elem_addr = used_ring + 4 + ((used_idx as u64 % size as u64) * 8);
@@ -262,13 +271,11 @@ impl Cpu {
             self.bus.write32(used_elem_addr, desc_index as u32)?;
             self.bus.write32(used_elem_addr + 4, written_len)?;
 
-            // advance the used_idx
             self.bus.write16(used_ring + 2, used_idx.wrapping_add(1))?;
 
             triggered = true;
         }
 
-        // only fire the interrupt once we have processed everything in the batch!
         if triggered {
             self.bus.virtio.interrupt_status |= 0x1;
             self.bus.plic.trigger_interrupt(1);

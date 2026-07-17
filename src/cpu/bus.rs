@@ -287,6 +287,15 @@ impl Bus {
         self.ram.load(offset, bytes)
     }
 
+    // for virtio disk
+    pub fn read_dma(&self, addr: u64, buffer: &mut [u8]) -> Result<(), Trap> {
+        if addr >= RAM_BASE { self.ram.read_bulk(addr - RAM_BASE, buffer) } else { Err(Trap::LoadAccessFault(addr)) }
+    }
+
+    pub fn write_dma(&mut self, addr: u64, data: &[u8]) -> Result<(), Trap> {
+        if addr >= RAM_BASE { self.ram.load(addr - RAM_BASE, data) } else { Err(Trap::StoreAccessFault(addr)) }
+    }
+
     // private emulation helpers
     #[inline]
     fn read16_emulated(&mut self, addr: u64) -> Result<u16, Trap> {

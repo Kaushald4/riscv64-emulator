@@ -119,9 +119,7 @@ impl Uart {
                 } else {
                     self.thr = value;
                     print!("{}", value as char);
-                    if value == b'\n' {
-                        io::stdout().flush().unwrap();
-                    }
+                    io::stdout().flush().unwrap();
 
                     if (self.ier & 0x02) != 0 {
                         self.tx_int_pending = true;
