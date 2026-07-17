@@ -27,6 +27,7 @@ pub fn ecall(cpu: &mut Cpu) -> ExecResult {
         PrivilegeMode::Machine => Err(Trap::EcallFromMMode),
     }
 }
+
 pub fn mret(cpu: &mut Cpu) -> ExecResult {
     let mpp = (cpu.csr.mstatus & MSTATUS_MPP_MASK) >> MSTATUS_MPP_SHIFT;
 
@@ -55,21 +56,21 @@ pub fn mret(cpu: &mut Cpu) -> ExecResult {
 
 pub fn sret(cpu: &mut Cpu) -> ExecResult {
     // SPP indicates the privilege mode to return to.
-    let spp = (cpu.csr.sstatus >> 8) & 1;
+    let spp = (cpu.csr.mstatus >> 8) & 1;
 
     cpu.privilege_mode = if spp == 0 { PrivilegeMode::User } else { PrivilegeMode::Supervisor };
 
     // SIE <- SPIE
-    let spie = (cpu.csr.sstatus >> 5) & 1;
+    let spie = (cpu.csr.mstatus >> 5) & 1;
 
-    cpu.csr.sstatus &= !(1 << 1);
-    cpu.csr.sstatus |= spie << 1;
+    cpu.csr.mstatus &= !(1 << 1);
+    cpu.csr.mstatus |= spie << 1;
 
     // SPIE <- 1
-    cpu.csr.sstatus |= 1 << 5;
+    cpu.csr.mstatus |= 1 << 5;
 
     // SPP <- User
-    cpu.csr.sstatus &= !(1 << 8);
+    cpu.csr.mstatus &= !(1 << 8);
 
     Ok(ExecFlow::Jump(cpu.csr.sepc))
 }

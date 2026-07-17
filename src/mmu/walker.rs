@@ -17,6 +17,15 @@ impl PageWalker {
     const PTE_SIZE: u64 = 8;
 
     pub fn translate(cpu: &mut Cpu, virtual_address: u64, access: AccessType) -> Result<Translation, Trap> {
+        // bypass MMU completely for machine mode (or M-mode with MPRV=0)
+        if Self::effective_privilege(cpu, access) == PrivilegeMode::Machine {
+            return Ok(Translation {
+                physical_address: virtual_address,
+                translated: false,
+                root_page_table: 0,
+            });
+        }
+
         let satp = Satp::new(cpu.csr.satp);
 
         match satp.mode() {
@@ -57,8 +66,7 @@ impl PageWalker {
                 return Err(Self::page_fault(access, virtual_address));
             }
 
-            // Spec step 4:
-            // Leaf PTE found.
+            // leaf PTE found.
             if pte.is_leaf() {
                 Self::check_permissions(cpu, pte, access, virtual_address)?;
 
@@ -68,7 +76,7 @@ impl PageWalker {
 
                     // 2 MiB page
                     1 => {
-                        // Misaligned superpage?
+                        // misaligned superpage?
                         if pte.ppn0() != 0 {
                             return Err(Self::page_fault(access, virtual_address));
                         }
@@ -78,7 +86,7 @@ impl PageWalker {
 
                     // 1 GiB page
                     2 => {
-                        // Misaligned superpage?
+                        // misaligned superpage?
                         if pte.ppn0() != 0 || pte.ppn1() != 0 {
                             return Err(Self::page_fault(access, virtual_address));
                         }
@@ -96,8 +104,8 @@ impl PageWalker {
                 });
             }
 
-            // Spec step 5:
-            // Descend to the next level.
+            // spec step 5:
+            // descend to the next level.
             level -= 1;
 
             if level < 0 {

@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use crate::trap::Trap;
 
 pub const CLINT_BASE: u64 = 0x0200_0000;
@@ -7,16 +9,26 @@ const MSIP_OFFSET: u64 = 0x0000;
 const MTIMECMP_OFFSET: u64 = 0x4000;
 const MTIME_OFFSET: u64 = 0xBFF8;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Clint {
     pub msip: u32,
     pub mtimecmp: u64,
     pub mtime: u64,
+
+    start_time: Instant,
+    pub frequency: u64,
 }
 
 impl Clint {
     pub fn new() -> Self {
-        Self { msip: 0, mtimecmp: u64::MAX, mtime: 0 }
+        Self {
+            msip: 0,
+            mtimecmp: u64::MAX,
+            mtime: 0,
+
+            start_time: Instant::now(),
+            frequency: 10_000_000, // 10 MHz
+        }
     }
 
     #[inline]
@@ -32,6 +44,11 @@ impl Clint {
     pub fn tick(&mut self) {
         self.mtime = self.mtime.wrapping_add(1);
     }
+    // #[inline]
+    // pub fn tick(&mut self) {
+    //     let elapsed_ns = self.start_time.elapsed().as_nanos() as u64;
+    //     self.mtime = elapsed_ns * self.frequency / 1_000_000_000;
+    // }
 
     #[inline]
     pub fn read8(&self, addr: u64) -> Result<u8, Trap> {

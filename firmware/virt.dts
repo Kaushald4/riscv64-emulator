@@ -43,7 +43,7 @@
 			device_type = "cpu";
 			reg = <0x00>;
 			status = "okay";
-			compatible = "riscv,rv64";
+			compatible = "riscv";
 			riscv,isa = "rv64imafdc_zicsr_zifencei";
 			mmu-type = "riscv,sv39";
 

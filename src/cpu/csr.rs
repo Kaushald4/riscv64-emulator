@@ -44,6 +44,9 @@ pub const CSR_MCAUSE: u16 = 0x342;
 pub const CSR_MTVAL: u16 = 0x343;
 pub const CSR_MIP: u16 = 0x344;
 
+pub const CSR_CYCLE: u16 = 0xC00;
+pub const CSR_TIME: u16 = 0xC01;
+
 // supervisor
 pub const CSR_SATP: u16 = 0x180;
 pub const CSR_SSTATUS: u16 = 0x100;
@@ -57,9 +60,12 @@ pub const CSR_SIP: u16 = 0x144;
 pub const SSIP: u64 = 1 << 1;
 pub const STIP: u64 = 1 << 5;
 pub const SEIP: u64 = 1 << 9;
+pub const CSR_STIMECMP: u16 = 0x14D;
 
 pub const SIE_MASK: u64 = SSIP | STIP | SEIP;
 pub const SIP_MASK: u64 = SSIP | STIP | SEIP;
+
+pub const SSTATUS_MASK: u64 = 0x8000_0003_000D_E162;
 
 // floats csr
 pub const CSR_FFLAGS: u16 = 0x001;
@@ -94,7 +100,10 @@ pub struct Csr {
     pub stval: u64,
     pub sscratch: u64,
     pub stvec: u64,
-    pub sstatus: u64,
+
+    pub stimecmp: u64,
+    pub time: u64,
+    pub cycle: u64,
 
     // PMP
     pub pmpcfg: [u64; 16],
@@ -133,7 +142,9 @@ impl Csr {
             stval: 0,
             sscratch: 0,
             stvec: 0,
-            sstatus: 0,
+            stimecmp: u64::MAX,
+            time: 0,
+            cycle: 0,
 
             pmpcfg: [0; 16],
             pmpaddr: [0; 64],
@@ -168,12 +179,14 @@ impl Csr {
             CSR_SATP => Ok(self.satp),
 
             // supervisor
-            CSR_SSTATUS => Ok(self.sstatus),
+            CSR_SSTATUS => Ok(self.mstatus & SSTATUS_MASK),
             CSR_STVEC => Ok(self.stvec),
             CSR_SEPC => Ok(self.sepc),
             CSR_SCAUSE => Ok(self.scause),
             CSR_STVAL => Ok(self.stval),
 
+            CSR_TIME => Ok(self.time),
+            CSR_CYCLE => Ok(self.cycle),
             CSR_SSCRATCH => Ok(self.sscratch),
             CSR_SIE => Ok(self.mie & SIE_MASK),
             CSR_SIP => Ok(self.mip & SIP_MASK),
@@ -210,7 +223,9 @@ impl Csr {
             CSR_SATP => self.satp = value,
 
             // supervisor
-            CSR_SSTATUS => self.sstatus = value,
+            CSR_SSTATUS => {
+                self.mstatus = (self.mstatus & !SSTATUS_MASK) | (value & SSTATUS_MASK);
+            }
             CSR_STVEC => self.stvec = value,
             CSR_SEPC => self.sepc = value,
             CSR_SCAUSE => self.scause = value,
@@ -218,9 +233,15 @@ impl Csr {
             CSR_SIE => {
                 self.mie = (self.mie & !SIE_MASK) | (value & SIE_MASK);
             }
+            CSR_SSCRATCH => self.sscratch = value,
 
             CSR_SIP => {
                 self.mip = (self.mip & !SIP_MASK) | (value & SIP_MASK);
+            }
+
+            CSR_STIMECMP => {
+                self.stimecmp = value;
+                self.mip &= !STIP;
             }
 
             // floats
@@ -253,7 +274,7 @@ impl Csr {
             }
 
             _ => {
-                // Store any other writable CSR.
+                // any other writable CSR.
                 self.extra.insert(csr, value);
             }
         }
@@ -263,12 +284,12 @@ impl Csr {
 
     #[inline]
     pub fn sum(&self) -> bool {
-        ((self.sstatus >> 18) & 1) != 0
+        ((self.mstatus >> 18) & 1) != 0
     }
 
     #[inline]
     pub fn mxr(&self) -> bool {
-        ((self.sstatus >> 19) & 1) != 0
+        ((self.mstatus >> 19) & 1) != 0
     }
 
     #[inline]

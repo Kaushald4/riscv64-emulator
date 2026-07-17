@@ -39,6 +39,8 @@ pub struct Cpu {
     pub csr: Csr,
     // reservation for LR/SC
     pub reservation: Option<u64>,
+
+    pub inst_count: u64,
 }
 
 impl Cpu {
@@ -52,6 +54,8 @@ impl Cpu {
             privilege_mode: PrivilegeMode::Machine,
             csr: Csr::new(),
             reservation: None,
+
+            inst_count: 0,
         }
     }
 
@@ -65,6 +69,7 @@ impl Cpu {
         if first & 0b11 != 0b11 {
             Ok(first as u32)
         } else {
+            // let second = self.bus.read16(self.pc + 2)?;
             let second = Mmu::read16(self, self.pc + 2)?;
 
             Ok((first as u32) | ((second as u32) << 16))
@@ -74,25 +79,51 @@ impl Cpu {
     pub fn step(&mut self) -> Result<(), Trap> {
         self.bus.clint.tick();
 
+        #[cfg(debug_assertions)]
+        self.debug_print();
+
+        self.csr.time = self.bus.clint.mtime;
+
+        if self.bus.clint.mtime >= self.bus.clint.mtimecmp {
+            self.csr.mip |= 1 << 7;
+        } else {
+            self.csr.mip &= !(1 << 7);
+        }
+
+        if self.bus.clint.mtime >= self.csr.stimecmp {
+            // set STIP
+            self.csr.mip |= 1 << 5;
+        } else {
+            // clear STIP
+            self.csr.mip &= !(1 << 5);
+        }
+
+        // software interrupt (MSIP)
+        if (self.bus.clint.msip & 1) != 0 {
+            // set MSIP
+            self.csr.mip |= 1 << 3;
+        } else {
+            // clear MSIP
+            self.csr.mip &= !(1 << 3);
+        }
+
         if let Some(cause) = self.pending_interrupt() {
             self.handle_interrupt(cause)?;
             return Ok(());
         }
+
         let raw = match self.fetch() {
             Ok(inst) => inst,
             Err(trap) => {
+                #[cfg(debug_assertions)]
+                eprintln!("\n TRAP CAUGHT at PC 0x{:016x}: {:?}", self.pc, trap);
+
                 self.handle_trap(trap)?;
                 return Ok(());
             }
         };
 
-        // #[cfg(debug_assertions)]
-        // if self.pc >= 0x8001_B400 && self.pc <= 0x8001_B500 {
-        //     println!("{:#018x}: {:#010x}", self.pc, raw);
-        // }
-
         let decoded = decode(raw);
-
         let length = decoded.length;
         self.current_instruction_length = length;
 
@@ -101,12 +132,10 @@ impl Cpu {
                 ExecFlow::Next => {
                     self.pc = self.pc.wrapping_add(length as u64);
                 }
-
                 ExecFlow::Jump(target) => {
                     self.pc = target;
                 }
             },
-
             Err(trap) => {
                 self.handle_trap(trap)?;
             }
@@ -166,21 +195,22 @@ impl Cpu {
         self.csr.sepc = self.pc;
 
         self.csr.scause = (1u64 << 63) | cause;
+        self.csr.stval = 0;
 
         // SPIE <- SIE
-        let sie = (self.csr.sstatus >> 1) & 1;
+        let sie = (self.csr.mstatus >> 1) & 1;
 
-        self.csr.sstatus &= !(1 << 5);
-        self.csr.sstatus |= sie << 5;
+        self.csr.mstatus &= !(1 << 5);
+        self.csr.mstatus |= sie << 5;
 
         // SIE <- 0
-        self.csr.sstatus &= !(1 << 1);
+        self.csr.mstatus &= !(1 << 1);
 
         // SPP <- previous privilege
-        self.csr.sstatus &= !(1 << 8);
+        self.csr.mstatus &= !(1 << 8);
 
         if self.privilege_mode == PrivilegeMode::Supervisor {
-            self.csr.sstatus |= 1 << 8;
+            self.csr.mstatus |= 1 << 8;
         }
 
         self.privilege_mode = PrivilegeMode::Supervisor;
@@ -199,27 +229,56 @@ impl Cpu {
 
     #[inline]
     pub fn pending_interrupt(&self) -> Option<u64> {
+        // Pending and individually enabled interrupts
         let pending = self.csr.mip & self.csr.mie;
-
-        // machine external interrupt
-        if (pending & (1 << 11)) != 0 {
-            return Some(11);
+        if pending == 0 {
+            return None;
         }
 
-        // machine software interrupt
-        if (pending & (1 << 3)) != 0 {
-            return Some(3);
+        // Global interrupt enables
+        let m_enabled = self.privilege_mode != PrivilegeMode::Machine || ((self.csr.mstatus >> 3) & 1) != 0; // mstatus.MIE
+
+        let s_enabled = self.privilege_mode == PrivilegeMode::User || (self.privilege_mode == PrivilegeMode::Supervisor && ((self.csr.mstatus >> 1) & 1) != 0); // mstatus.SIE
+
+        // M-mode interrupts (bits NOT set in mideleg)
+        let m_pending = pending & !self.csr.mideleg;
+        if m_enabled && m_pending != 0 {
+            if (m_pending & (1 << 11)) != 0 {
+                return Some(11);
+            } // Machine External
+            if (m_pending & (1 << 3)) != 0 {
+                return Some(3);
+            } // Machine Software
+            if (m_pending & (1 << 7)) != 0 {
+                return Some(7);
+            } // Machine Timer
         }
 
-        // machine timer interrupt
-        if (pending & (1 << 7)) != 0 {
-            return Some(7);
+        // S-mode interrupts (bits SET in mideleg)
+        let s_pending = pending & self.csr.mideleg;
+        if s_enabled && s_pending != 0 {
+            if (s_pending & (1 << 9)) != 0 {
+                return Some(9);
+            } // Supervisor External
+            if (s_pending & (1 << 1)) != 0 {
+                return Some(1);
+            } // Supervisor Software
+            if (s_pending & (1 << 5)) != 0 {
+                return Some(5);
+            } // Supervisor Timer
         }
 
         None
     }
-}
 
+    fn debug_print(&mut self) {
+        self.inst_count += 1;
+        if self.inst_count % 5_000_000 == 0 {
+            let stip = (self.csr.mip >> 5) & 1;
+            println!("HEARTBEAT: PC = {:#018x} | mtime = {:<20} | stimecmp = {:<20} | STIP = {}", self.pc, self.bus.clint.mtime, self.csr.stimecmp, stip);
+        }
+    }
+}
 // trap handler
 impl Cpu {
     pub fn handle_trap(&mut self, trap: Trap) -> Result<(), Trap> {
@@ -345,20 +404,23 @@ impl Cpu {
 
         #[cfg(debug_assertions)]
         {
-            println!("Trap: mcause={} mepc={:#018x} mtval={:#018x}", self.csr.mcause, self.csr.mepc, self.csr.mtval);
+            let is_interrupt = (self.csr.mcause >> 63) != 0;
+            if self.csr.mcause != 9 && !is_interrupt {
+                println!("Trap: mcause={} mepc={:#018x} mtval={:#018x}", self.csr.mcause, self.csr.mepc, self.csr.mtval);
+            }
         }
 
         Ok(())
     }
 
     fn handle_supervisor_trap(&mut self, trap: Trap) -> Result<(), Trap> {
-        // Save faulting PC.
+        // save faulting PC.
         self.csr.sepc = self.pc;
 
-        // Clear stval by default.
+        // clear stval by default.
         self.csr.stval = 0;
 
-        // Record trap cause.
+        // record trap cause.
         self.csr.scause = match trap {
             Trap::InstructionAddressMisaligned(addr) => {
                 self.csr.stval = addr;
@@ -417,47 +479,33 @@ impl Cpu {
             }
         };
 
-        //
         // sstatus updates
-        //
 
         // SPIE <- SIE
-        let sie = (self.csr.sstatus >> 1) & 1;
+        let sie = (self.csr.mstatus >> 1) & 1;
+        self.csr.mstatus &= !(1 << 5);
+        self.csr.mstatus |= sie << 5;
 
-        self.csr.sstatus &= !(1 << 5);
-        self.csr.sstatus |= sie << 5;
+        self.csr.mstatus &= !(1 << 1);
 
-        // SIE <- 0
-        self.csr.sstatus &= !(1 << 1);
-
-        // SPP <- previous privilege
-        self.csr.sstatus &= !(1 << 8);
-
+        self.csr.mstatus &= !(1 << 8);
         if self.privilege_mode == PrivilegeMode::Supervisor {
-            self.csr.sstatus |= 1 << 8;
+            self.csr.mstatus |= 1 << 8;
         }
 
-        // Enter Supervisor mode.
+        // enter Supervisor mode.
         self.privilege_mode = PrivilegeMode::Supervisor;
 
-        //
         // Jump to stvec.
-        //
-
         let base = self.csr.stvec & !0b11;
         let mode = self.csr.stvec & 0b11;
 
         self.pc = match mode {
-            // Direct
             0 => base,
-
-            // Vectored (interrupts only)
             1 => {
                 let interrupt = (self.csr.scause >> 63) != 0;
-
                 if interrupt { base + ((self.csr.scause & !(1 << 63)) << 2) } else { base }
             }
-
             _ => base,
         };
 
