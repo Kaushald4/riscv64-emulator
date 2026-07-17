@@ -158,20 +158,10 @@ pub const fn cr_rs2(raw: u16) -> Reg {
     Reg::new((raw as u32) >> 2)
 }
 
-#[inline]
-pub const fn cr_funct4(raw: u16) -> u32 {
-    ((raw as u32) >> 12) & 0b1111
-}
-
 // CI Format
 #[inline]
 pub const fn ci_rd(raw: u16) -> Reg {
     Reg::new((raw as u32) >> 7)
-}
-
-#[inline]
-pub const fn ci_rs1(raw: u16) -> Reg {
-    ci_rd(raw)
 }
 
 #[inline]
@@ -319,12 +309,6 @@ pub const fn ca_rs2(raw: u16) -> Reg {
 #[inline]
 pub const fn ca_funct2(raw: u16) -> u32 {
     ((raw as u32) >> 5) & 0b11
-}
-
-/// funct6 (bits 15:10)
-#[inline]
-pub const fn ca_funct6(raw: u16) -> u32 {
-    ((raw as u32) >> 10) & 0b111111
 }
 
 /// bit12 is used to distinguish

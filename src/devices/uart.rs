@@ -27,7 +27,7 @@ impl Uart {
     #[inline]
     fn offset(addr: u64) -> Result<u64, Trap> {
         if !(UART_BASE..UART_BASE + UART_SIZE).contains(&addr) {
-            return Err(Trap::LoadAccessFault);
+            return Err(Trap::LoadAccessFault(addr));
         }
 
         Ok(addr - UART_BASE)

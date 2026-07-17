@@ -6,7 +6,8 @@ use glasshart_emulator::{
 };
 
 const RAM_BASE: u64 = 0x8000_0000;
-const DTB_ADDR: u64 = 0x87F0_0000;
+const DTB_ADDR: u64 = 0x8000_0000 + 0x2200000;
+const KERNEL_ADDR: u64 = 0x80200000;
 
 fn main() -> Result<(), Trap> {
     let mut cpu = Cpu::new();
@@ -29,6 +30,15 @@ fn main() -> Result<(), Trap> {
             println!("Failed at address {:#018x}", DTB_ADDR + i as u64);
             return Err(e);
         };
+    }
+
+    let kernel = fs::read("kernel/kernel_6.6").expect("failed to read kernel/kernel_6.6");
+
+    for (i, byte) in kernel.iter().enumerate() {
+        if let Err(e) = cpu.bus.write8(KERNEL_ADDR + i as u64, *byte) {
+            println!("Failed at address {:#018x}", DTB_ADDR + i as u64);
+            return Err(e);
+        }
     }
 
     cpu.pc = RAM_BASE;

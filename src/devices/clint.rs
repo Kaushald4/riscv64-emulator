@@ -22,7 +22,7 @@ impl Clint {
     #[inline]
     fn offset(addr: u64) -> Result<u64, Trap> {
         if !(CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
-            return Err(Trap::LoadAccessFault);
+            return Err(Trap::LoadAccessFault(addr));
         }
 
         Ok(addr - CLINT_BASE)
@@ -53,7 +53,7 @@ impl Clint {
                 ((self.mtime >> shift) & 0xff) as u8
             }
 
-            _ => return Err(Trap::LoadAccessFault),
+            _ => return Err(Trap::LoadAccessFault(addr)),
         };
 
         Ok(value)
@@ -115,7 +115,7 @@ impl Clint {
                 self.mtime |= (value as u64) << shift;
             }
 
-            _ => return Err(Trap::StoreAccessFault),
+            _ => return Err(Trap::StoreAccessFault(addr)),
         }
 
         Ok(())

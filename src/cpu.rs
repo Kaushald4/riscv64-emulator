@@ -65,7 +65,6 @@ impl Cpu {
         if first & 0b11 != 0b11 {
             Ok(first as u32)
         } else {
-            // let second = self.bus.read16(self.pc + 2)?;
             let second = Mmu::read16(self, self.pc + 2)?;
 
             Ok((first as u32) | ((second as u32) << 16))
@@ -79,7 +78,13 @@ impl Cpu {
             self.handle_interrupt(cause)?;
             return Ok(());
         }
-        let raw = self.fetch()?;
+        let raw = match self.fetch() {
+            Ok(inst) => inst,
+            Err(trap) => {
+                self.handle_trap(trap)?;
+                return Ok(());
+            }
+        };
 
         // #[cfg(debug_assertions)]
         // if self.pc >= 0x8001_B400 && self.pc <= 0x8001_B500 {
@@ -239,7 +244,10 @@ impl Cpu {
                 0
             }
 
-            Trap::InstructionAccessFault => 1,
+            Trap::InstructionAccessFault(addr) => {
+                self.csr.mtval = addr;
+                1
+            }
 
             Trap::IllegalInstruction(inst) => {
                 self.csr.mtval = inst as u64;
@@ -253,14 +261,20 @@ impl Cpu {
                 4
             }
 
-            Trap::LoadAccessFault => 5,
+            Trap::LoadAccessFault(addr) => {
+                self.csr.mtval = addr;
+                5
+            }
 
             Trap::StoreAddressMisaligned(addr) => {
                 self.csr.mtval = addr;
                 6
             }
 
-            Trap::StoreAccessFault => 7,
+            Trap::StoreAccessFault(addr) => {
+                self.csr.mtval = addr;
+                7
+            }
 
             Trap::EcallFromUMode => 8,
             Trap::EcallFromSMode => 9,
@@ -351,7 +365,10 @@ impl Cpu {
                 0
             }
 
-            Trap::InstructionAccessFault => 1,
+            Trap::InstructionAccessFault(addr) => {
+                self.csr.stval = addr;
+                1
+            }
 
             Trap::IllegalInstruction(inst) => {
                 self.csr.stval = inst as u64;
@@ -365,14 +382,20 @@ impl Cpu {
                 4
             }
 
-            Trap::LoadAccessFault => 5,
+            Trap::LoadAccessFault(addr) => {
+                self.csr.stval = addr;
+                5
+            }
 
             Trap::StoreAddressMisaligned(addr) => {
                 self.csr.stval = addr;
                 6
             }
 
-            Trap::StoreAccessFault => 7,
+            Trap::StoreAccessFault(addr) => {
+                self.csr.stval = addr;
+                7
+            }
 
             Trap::EcallFromUMode => 8,
             Trap::EcallFromSMode => 9,
@@ -445,13 +468,13 @@ impl Cpu {
     fn exception_cause(trap: &Trap) -> u64 {
         match trap {
             Trap::InstructionAddressMisaligned(_) => 0,
-            Trap::InstructionAccessFault => 1,
+            Trap::InstructionAccessFault(_) => 1,
             Trap::IllegalInstruction(_) => 2,
             Trap::Breakpoint => 3,
             Trap::LoadAddressMisaligned(_) => 4,
-            Trap::LoadAccessFault => 5,
+            Trap::LoadAccessFault(_) => 5,
             Trap::StoreAddressMisaligned(_) => 6,
-            Trap::StoreAccessFault => 7,
+            Trap::StoreAccessFault(_) => 7,
             Trap::EcallFromUMode => 8,
             Trap::EcallFromSMode => 9,
             Trap::EcallFromMMode => 11,
