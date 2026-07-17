@@ -62,6 +62,7 @@ pub const CSR_SIP: u16 = 0x144;
 pub const SSIP: u64 = 1 << 1;
 pub const STIP: u64 = 1 << 5;
 pub const SEIP: u64 = 1 << 9;
+pub const CSR_STIMECMP: u16 = 0x14D;
 
 pub const SIE_MASK: u64 = SSIP | STIP | SEIP;
 pub const SIP_MASK: u64 = SSIP | STIP | SEIP;
@@ -109,6 +110,8 @@ pub struct Csr {
     pub frm: u64,
     pub fcsr: u64,
 
+    pub stimecmp: u64,
+
     pub time: u64,
     pub cycle: u64,
 
@@ -148,6 +151,8 @@ impl Csr {
             frm: 0,
             fcsr: 0,
 
+            stimecmp: u64::MAX,
+
             time: 0,
             cycle: 0,
 
@@ -183,6 +188,7 @@ impl Csr {
             CSR_SCAUSE => Ok(self.scause),
             CSR_STVAL => Ok(self.stval),
 
+            // 0x14D => Ok(self.stimecmp),
             CSR_SSCRATCH => Ok(self.sscratch),
             CSR_SIE => Ok(self.mie & SIE_MASK),
             CSR_SIP => Ok(self.mip & SIP_MASK),
@@ -222,7 +228,6 @@ impl Csr {
             CSR_SATP => self.satp = value,
 
             // supervisor
-            // Replace the old CSR_SSTATUS line with this:
             CSR_SSTATUS => {
                 self.mstatus = (self.mstatus & !SSTATUS_MASK) | (value & SSTATUS_MASK);
             }
@@ -233,9 +238,15 @@ impl Csr {
             CSR_SIE => {
                 self.mie = (self.mie & !SIE_MASK) | (value & SIE_MASK);
             }
+            CSR_SSCRATCH => self.sscratch = value,
 
             CSR_SIP => {
                 self.mip = (self.mip & !SIP_MASK) | (value & SIP_MASK);
+            }
+
+            CSR_STIMECMP => {
+                self.stimecmp = value;
+                self.mip &= !STIP;
             }
 
             // floats
@@ -268,7 +279,7 @@ impl Csr {
             }
 
             _ => {
-                // Store any other writable CSR.
+                // any other writable CSR.
                 self.extra.insert(csr, value);
             }
         }

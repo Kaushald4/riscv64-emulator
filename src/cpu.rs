@@ -88,25 +88,43 @@ impl Cpu {
         //     print!(".");
         //     std::io::stdout().flush().unwrap();
         // }
-        // Inside step()
+
+        // The exact address of the final `beqz` check
+        // Delete or comment out the old instruction trace block!
+        // if self.pc == 0xffffffff801465e8 { ... }
+
         self.trace[self.trace_idx] = self.pc;
         self.trace_idx = (self.trace_idx + 1) % 100;
 
         self.inst_count += 1;
 
-        if self.pc == 0xffffffff801465e8 {
-            println!("--- INSTRUCTION TRACE TO CRASH ---");
-            for i in 0..100 {
-                let idx = (self.trace_idx + i) % 100;
-                println!("{:#018x}", self.trace[idx]);
-            }
-            std::process::exit(1);
-        }
         if self.inst_count % 5_000_000 == 0 {
-            println!("HEARTBEAT: PC = {:#018x}", self.pc);
+            let stip = (self.csr.mip >> 5) & 1;
+            println!("HEARTBEAT: PC = {:#018x} | mtime = {:<20} | stimecmp = {:<20} | STIP = {}", self.pc, self.bus.clint.mtime, self.csr.stimecmp, stip);
         }
 
         self.bus.clint.tick();
+
+        // // 🚨 DEBUG: Check interrupt state when kernel calls timer SBI
+        // if self.pc == 0xffffffff8000643e {
+        //     let sstatus_sie = (self.csr.mstatus >> 1) & 1;
+        //     let sie_stie = (self.csr.mie >> 5) & 1;
+        //     let mip_stip = (self.csr.mip >> 5) & 1;
+
+        //     eprintln!("🚨 TIMER SBI CALL: sstatus.SIE={}, sie.STIE={}, mip.STIP={}", sstatus_sie, sie_stie, mip_stip);
+        // }
+
+        // // 🚨 DEBUG: Check the return value of the SBI call
+        // if self.pc == 0xffffffff80006442 {
+        //     let a0 = self.regs.read(crate::cpu::register::Reg::new(10));
+        //     eprintln!("🚨 SBI RETURN at 0x{:016x}: a0 = {} (0x{:016x})", self.pc, a0 as i64, a0);
+        // }
+
+        // if self.pc == 0xffffffff80002ea0 {
+        //     let tp = self.regs.read(crate::cpu::register::Reg::new(4));
+        //     let sscratch = self.csr.read(0x140).unwrap_or(0); // 0x140 is sscratch
+        //     eprintln!("🚨 DEBUG handle_exception: tp = 0x{:016x}, sscratch = 0x{:016x}", tp, sscratch);
+        // }
 
         self.csr.time = self.bus.clint.mtime;
 
@@ -116,10 +134,17 @@ impl Cpu {
             self.csr.mip &= !(1 << 7);
         }
 
-        if (self.bus.clint.msip & 1) != 0 {
-            self.csr.mip |= 1 << 3;
+        if self.bus.clint.mtime >= self.csr.stimecmp {
+            self.csr.mip |= 1 << 5; // Set STIP
         } else {
-            self.csr.mip &= !(1 << 3);
+            self.csr.mip &= !(1 << 5); // Clear STIP
+        }
+
+        // 3. Software Interrupt (MSIP)
+        if (self.bus.clint.msip & 1) != 0 {
+            self.csr.mip |= 1 << 3; // Set MSIP
+        } else {
+            self.csr.mip &= !(1 << 3); // Clear MSIP
         }
 
         if let Some(cause) = self.pending_interrupt() {
@@ -130,6 +155,8 @@ impl Cpu {
         let raw = match self.fetch() {
             Ok(inst) => inst,
             Err(trap) => {
+                eprintln!("\n🚨 TRAP CAUGHT at PC 0x{:016x}: {:?}", self.pc, trap);
+
                 self.handle_trap(trap)?;
                 return Ok(());
             }
@@ -287,6 +314,23 @@ impl Cpu {
 // trap handler
 impl Cpu {
     pub fn handle_trap(&mut self, trap: Trap) -> Result<(), Trap> {
+        // // 🚨 CRITICAL: Detect infinite trap loops!
+        // static mut LAST_TRAP_PC: u64 = 0;
+        // static mut TRAP_COUNT: u32 = 0;
+
+        // unsafe {
+        //     if LAST_TRAP_PC == self.pc {
+        //         TRAP_COUNT += 1;
+        //         if TRAP_COUNT > 5 {
+        //             eprintln!("\n🚨 INFINITE TRAP LOOP DETECTED at PC 0x{:016x}!", self.pc);
+        //             eprintln!("   Trap Reason: {:?}", trap);
+        //             std::process::exit(1);
+        //         }
+        //     } else {
+        //         LAST_TRAP_PC = self.pc;
+        //         TRAP_COUNT = 0;
+        //     }
+        // }
         let cause = Self::exception_cause(&trap);
 
         let delegated = self.privilege_mode != PrivilegeMode::Machine && self.csr.is_exception_delegated(cause);
