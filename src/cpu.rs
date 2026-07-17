@@ -213,7 +213,7 @@ impl Cpu {
             let avail_idx = self.bus.read16(avail_ring + 2)?;
 
             if last_avail_idx == avail_idx {
-                break; // Queue is caught up
+                break;
             }
 
             let ring_entry = avail_ring + 4 + ((last_avail_idx as u64 % size as u64) * 2);
@@ -224,11 +224,9 @@ impl Cpu {
             let desc_table = self.bus.virtio.queues[q_idx].desc_table;
             let initial_desc = self.read_virtq_desc(desc_table + (desc_index as u64 * 16))?;
 
-            // --- 1. DYNAMICALLY WALK THE DESCRIPTOR CHAIN ---
             let mut desc_chain = Vec::new();
 
             if initial_desc.flags & 0x04 != 0 {
-                // VRING_DESC_F_INDIRECT: Follow pointer to an isolated table in RAM
                 let indirect_table = initial_desc.addr;
                 let mut next_idx = 0;
                 loop {
@@ -241,7 +239,6 @@ impl Cpu {
                     }
                 }
             } else {
-                // Normal Direct Descriptor Chain
                 let mut d = initial_desc;
                 loop {
                     let has_next = (d.flags & 0x01) != 0;
@@ -254,25 +251,21 @@ impl Cpu {
                 }
             }
 
-            // A valid block request must always have at least a Header and a Status descriptor
             if desc_chain.len() < 2 {
                 return Err(Trap::StoreAccessFault(0));
             }
 
-            // Extract core boundaries safely
             let header_desc = desc_chain[0];
             let status_desc = desc_chain[desc_chain.len() - 1];
 
             let header = self.read_blk_req_header(header_desc.addr)?;
             let mut written_len = 0;
 
-            // --- 2. PROCESS BY REQUEST TYPE ---
             match header.request_type {
                 0 => {
                     // Read (Disk -> RAM)
                     let mut current_sector_offset = header.sector as usize * 512;
 
-                    // Slice out intermediate elements (everything between header and status)
                     for data_desc in &desc_chain[1..desc_chain.len() - 1] {
                         let length = data_desc.len as usize;
                         let disk_chunk = self.bus.virtio.device.image[current_sector_offset..current_sector_offset + length].to_vec();
@@ -281,8 +274,8 @@ impl Cpu {
                         current_sector_offset += length;
                         written_len += length as u32;
                     }
-
-                    self.bus.write8(status_desc.addr, 0)?; // 0 = VIRTIO_BLK_S_OK
+                    // 0 = VIRTIO_BLK_S_OK
+                    self.bus.write8(status_desc.addr, 0)?;
                     written_len += 1;
                 }
                 1 => {
@@ -303,18 +296,17 @@ impl Cpu {
                 }
                 4 => {
                     // VIRTIO_BLK_T_FLUSH (Type 4)
-                    // Synthetically confirm cache serialization
                     self.bus.write8(status_desc.addr, 0)?;
                     written_len = 1;
                 }
                 _ => {
-                    // Unsupported operation error fallback
-                    self.bus.write8(status_desc.addr, 2)?; // 2 = VIRTIO_BLK_S_UNSUPP
+                    // unsupported operation error fallback
+                    //  2 = VIRTIO_BLK_S_UNSUPP
+                    self.bus.write8(status_desc.addr, 2)?;
                     written_len = 1;
                 }
             }
 
-            // --- 3. ACKNOWLEDGE TRANSLATION TO USED RING ---
             let used_ring = self.bus.virtio.queues[q_idx].used_ring;
             let used_idx = self.bus.read16(used_ring + 2)?;
             let used_elem_addr = used_ring + 4 + ((used_idx as u64 % size as u64) * 8);
