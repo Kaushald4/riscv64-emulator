@@ -1,44 +1,52 @@
-use std::fs;
+use std::{fs, io::Read, sync::mpsc, thread};
 
+use crossterm::terminal;
 use glasshart_emulator::{
     cpu::{Cpu, register::Reg},
     trap::Trap,
 };
 
 const RAM_BASE: u64 = 0x8000_0000;
-const DTB_ADDR: u64 = 0x8000_0000 + 0x2200000;
-const KERNEL_ADDR: u64 = 0x80200000;
+const DTB_ADDR: u64 = RAM_BASE + 0x2200000;
+const KERNEL_ADDR: u64 = 0x8020_0000;
 
 fn main() -> Result<(), Trap> {
+    terminal::enable_raw_mode().unwrap();
+
+    let (tx, rx) = mpsc::channel::<u8>();
+
+    thread::spawn(move || {
+        let mut stdin = std::io::stdin();
+        let mut buffer = [0u8; 1];
+
+        while stdin.read_exact(&mut buffer).is_ok() {
+            // Ctrl+C
+            if buffer[0] == 0x03 {
+                std::process::exit(0);
+            }
+
+            let _ = tx.send(buffer[0]);
+        }
+    });
+
     let mut cpu = Cpu::new();
 
     let firmware = fs::read("firmware/fw_jump.bin").expect("failed to read firmware/fw_jump.bin");
 
     for (i, byte) in firmware.iter().enumerate() {
-        let addr = RAM_BASE + i as u64;
-
-        if let Err(e) = cpu.bus.write8(addr, *byte) {
-            println!("Failed at address {:#018x}", addr);
-            return Err(e);
-        }
+        cpu.bus.write8(RAM_BASE + i as u64, *byte)?;
     }
 
     let dtb = fs::read("firmware/virt.dtb").expect("failed to read firmware/virt.dtb");
 
     for (i, byte) in dtb.iter().enumerate() {
-        if let Err(e) = cpu.bus.write8(DTB_ADDR + i as u64, *byte) {
-            println!("Failed at address {:#018x}", DTB_ADDR + i as u64);
-            return Err(e);
-        };
+        cpu.bus.write8(DTB_ADDR + i as u64, *byte)?;
     }
 
     let kernel = fs::read("kernel/kernel_6.6").expect("failed to read kernel/kernel_6.6");
 
     for (i, byte) in kernel.iter().enumerate() {
-        if let Err(e) = cpu.bus.write8(KERNEL_ADDR + i as u64, *byte) {
-            println!("Failed at address {:#018x}", DTB_ADDR + i as u64);
-            return Err(e);
-        }
+        cpu.bus.write8(KERNEL_ADDR + i as u64, *byte)?;
     }
 
     cpu.pc = RAM_BASE;
@@ -52,6 +60,13 @@ fn main() -> Result<(), Trap> {
     println!("Booting OpenSBI...");
 
     loop {
+        if let Ok(byte) = rx.try_recv() {
+            cpu.bus.uart.push_rx(byte);
+        }
+
+        if cpu.bus.uart.is_interrupting() {
+            cpu.bus.plic.trigger_interrupt(10);
+        }
         cpu.step()?;
     }
 }

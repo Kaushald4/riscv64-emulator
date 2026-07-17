@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::trap::Trap;
+use crate::{devices::Device, trap::Trap};
 
 pub const CLINT_BASE: u64 = 0x0200_0000;
 pub const CLINT_SIZE: u64 = 0x0001_0000;
@@ -17,6 +17,12 @@ pub struct Clint {
 
     start_time: Instant,
     pub frequency: u64,
+}
+
+impl Device for Clint {
+    fn tick(&mut self) {
+        self.mtime = self.mtime.wrapping_add(1);
+    }
 }
 
 impl Clint {
@@ -40,10 +46,10 @@ impl Clint {
         Ok(addr - CLINT_BASE)
     }
 
-    #[inline]
-    pub fn tick(&mut self) {
-        self.mtime = self.mtime.wrapping_add(1);
-    }
+    // #[inline]
+    // pub fn tick(&mut self) {
+    //     self.mtime = self.mtime.wrapping_add(1);
+    // }
     // #[inline]
     // pub fn tick(&mut self) {
     //     let elapsed_ns = self.start_time.elapsed().as_nanos() as u64;

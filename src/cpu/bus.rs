@@ -1,14 +1,18 @@
 use crate::{
     cpu::memory::Memory,
     devices::{
+        Device,
         clint::{CLINT_BASE, CLINT_SIZE, Clint},
         plic::{PLIC_BASE, PLIC_SIZE, Plic},
         uart::{UART_BASE, UART_SIZE, Uart},
+        virtio::mmio::VirtIOMmio,
     },
     trap::Trap,
 };
 
 pub const RAM_BASE: u64 = 0x8000_0000;
+pub const VIRTIO_BASE: u64 = 0x1000_1000;
+pub const VIRTIO_SIZE: u64 = 0x1000;
 
 #[derive(Debug, Clone, Copy)]
 pub enum MisalignedAccess {
@@ -22,6 +26,13 @@ pub struct Bus {
     pub clint: Clint,
     pub uart: Uart,
     pub plic: Plic,
+    pub virtio: VirtIOMmio,
+}
+
+impl Device for Bus {
+    fn tick(&mut self) {
+        self.clint.tick();
+    }
 }
 
 impl Bus {
@@ -32,6 +43,7 @@ impl Bus {
             clint: Clint::new(),
             uart: Uart::new(),
             plic: Plic::new(),
+            virtio: VirtIOMmio::new(),
         }
     }
 
@@ -52,7 +64,7 @@ impl Bus {
 
     // reads
     #[inline]
-    pub fn read8(&self, addr: u64) -> Result<u8, Trap> {
+    pub fn read8(&mut self, addr: u64) -> Result<u8, Trap> {
         if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
             return self.clint.read8(addr);
         }
@@ -68,7 +80,7 @@ impl Bus {
     }
 
     #[inline]
-    pub fn read16(&self, addr: u64) -> Result<u16, Trap> {
+    pub fn read16(&mut self, addr: u64) -> Result<u16, Trap> {
         if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
             return self.clint.read16(addr);
         }
@@ -101,7 +113,7 @@ impl Bus {
     }
 
     #[inline]
-    pub fn read32(&self, addr: u64) -> Result<u32, Trap> {
+    pub fn read32(&mut self, addr: u64) -> Result<u32, Trap> {
         if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
             return self.clint.read32(addr);
         }
@@ -110,6 +122,9 @@ impl Bus {
         }
         if (PLIC_BASE..PLIC_BASE + PLIC_SIZE).contains(&addr) {
             return self.plic.read32(addr);
+        }
+        if (VIRTIO_BASE..VIRTIO_BASE + VIRTIO_SIZE).contains(&addr) {
+            return Ok(self.virtio.read32(addr - VIRTIO_BASE));
         }
 
         match self.misaligned {
@@ -134,7 +149,7 @@ impl Bus {
     }
 
     #[inline]
-    pub fn read64(&self, addr: u64) -> Result<u64, Trap> {
+    pub fn read64(&mut self, addr: u64) -> Result<u64, Trap> {
         if (CLINT_BASE..CLINT_BASE + CLINT_SIZE).contains(&addr) {
             return self.clint.read64(addr);
         }
@@ -227,6 +242,10 @@ impl Bus {
         if (PLIC_BASE..PLIC_BASE + PLIC_SIZE).contains(&addr) {
             return self.plic.write32(addr, value);
         }
+        if (VIRTIO_BASE..VIRTIO_BASE + VIRTIO_SIZE).contains(&addr) {
+            self.virtio.write32(addr - VIRTIO_BASE, value);
+            return Ok(());
+        }
 
         match self.misaligned {
             MisalignedAccess::Trap => {
@@ -289,12 +308,12 @@ impl Bus {
 
     // private emulation helpers
     #[inline]
-    fn read16_emulated(&self, addr: u64) -> Result<u16, Trap> {
+    fn read16_emulated(&mut self, addr: u64) -> Result<u16, Trap> {
         Ok((self.read8(addr)? as u16) | ((self.read8(addr + 1)? as u16) << 8))
     }
 
     #[inline]
-    fn read32_emulated(&self, addr: u64) -> Result<u32, Trap> {
+    fn read32_emulated(&mut self, addr: u64) -> Result<u32, Trap> {
         let mut value = 0u32;
 
         for i in 0..4 {
@@ -305,7 +324,7 @@ impl Bus {
     }
 
     #[inline]
-    fn read64_emulated(&self, addr: u64) -> Result<u64, Trap> {
+    fn read64_emulated(&mut self, addr: u64) -> Result<u64, Trap> {
         let mut value = 0u64;
 
         for i in 0..8 {

@@ -69,7 +69,7 @@
 	};
 
 	chosen {
-		bootargs = "console=ttyS0 no4lvl";
+		bootargs = "console=ttyS0 no4lvl root=/dev/vda rw rootwait";
 		stdout-path = "/soc/serial@10000000";
 	};
 
@@ -101,6 +101,13 @@
 			interrupt-controller;
 			compatible = "riscv,plic0";
 			#interrupt-cells = <0x01>;
+		};
+
+		virtio_mmio@10001000 {
+			compatible = "virtio,mmio";
+			reg = <0x0 0x10001000 0x0 0x1000>;
+			interrupts = <1>;
+			interrupt-parent = <0x03>;
 		};
 
 		clint@2000000 {

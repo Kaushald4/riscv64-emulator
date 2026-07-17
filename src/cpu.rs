@@ -8,6 +8,10 @@ pub mod register;
 use crate::{
     cpu::{bus::Bus, csr::Csr},
     decode::decode,
+    devices::{
+        Device,
+        virtio::{descriptor::VirtqDesc, request::VirtIOBlkReqHeader},
+    },
     mmu::Mmu,
     trap::Trap,
 };
@@ -77,7 +81,11 @@ impl Cpu {
     }
 
     pub fn step(&mut self) -> Result<(), Trap> {
-        self.bus.clint.tick();
+        self.bus.tick();
+
+        if let Some(queue) = self.bus.virtio.take_queue_notify() {
+            self.process_virtio_queue(queue)?;
+        }
 
         #[cfg(debug_assertions)]
         self.debug_print();
@@ -105,6 +113,23 @@ impl Cpu {
         } else {
             // clear MSIP
             self.csr.mip &= !(1 << 3);
+        }
+
+        // evaluate external interrupts from PLIC
+        let (meip, seip) = self.bus.plic.evaluate_interrupt();
+
+        // machine external interrupt pending (Bit 11)
+        if meip {
+            self.csr.mip |= 1 << 11;
+        } else {
+            self.csr.mip &= !(1 << 11);
+        }
+
+        // supervisor external interrupt pending (Bit 9)
+        if seip {
+            self.csr.mip |= 1 << 9;
+        } else {
+            self.csr.mip &= !(1 << 9);
         }
 
         if let Some(cause) = self.pending_interrupt() {
@@ -142,6 +167,115 @@ impl Cpu {
         }
 
         Ok(())
+    }
+
+    fn process_virtio_queue(&mut self, queue: u16) -> Result<(), Trap> {
+        let q_idx = queue as usize;
+        let ready = self.bus.virtio.queues[q_idx].ready;
+
+        if !ready {
+            return Ok(());
+        }
+
+        let avail_ring = self.bus.virtio.queues[q_idx].avail_ring;
+        let size = self.bus.virtio.queues[q_idx].size;
+        let mut triggered = false;
+
+        loop {
+            let last_avail_idx = self.bus.virtio.queues[q_idx].last_avail_idx;
+            let avail_idx = self.bus.read16(avail_ring + 2)?;
+
+            if last_avail_idx == avail_idx {
+                break;
+            }
+
+            let ring_entry = avail_ring + 4 + ((last_avail_idx as u64 % size as u64) * 2);
+            let desc_index = self.bus.read16(ring_entry)?;
+
+            self.bus.virtio.queues[q_idx].last_avail_idx = last_avail_idx.wrapping_add(1);
+
+            let desc_table = self.bus.virtio.queues[q_idx].desc_table;
+
+            // Read the 3-part descriptor chain (Header -> Data -> Status)
+            let desc0 = self.read_virtq_desc(desc_table + (desc_index as u64 * 16))?;
+            let desc1 = self.read_virtq_desc(desc_table + (desc0.next as u64 * 16))?;
+            let desc2 = self.read_virtq_desc(desc_table + (desc1.next as u64 * 16))?;
+
+            let header = self.read_blk_req_header(desc0.addr)?;
+            let mut written_len = 0;
+
+            match header.request_type {
+                0 => {
+                    // read (Disk -> RAM)
+                    let length = desc1.len as usize;
+                    let start = header.sector as usize * 512;
+
+                    // TODO: Improve this for performance
+                    // read byte-by-byte (temp only to pass the borrow checking error)
+                    for i in 0..length {
+                        let byte = self.bus.virtio.device.image[start + i];
+                        self.bus.write8(desc1.addr + i as u64, byte)?;
+                    }
+
+                    self.bus.write8(desc2.addr, 0)?;
+                    written_len = length as u32 + 1;
+                }
+                1 => {
+                    // write (RAM -> Disk)
+                    let length = desc1.len as usize;
+                    let start = header.sector as usize * 512;
+
+                    for i in 0..length {
+                        let byte = self.bus.read8(desc1.addr + i as u64)?;
+                        self.bus.virtio.device.image[start + i] = byte;
+                    }
+
+                    self.bus.write8(desc2.addr, 0)?;
+                    written_len = 1;
+                }
+                _ => {
+                    self.bus.write8(desc2.addr, 2)?;
+                    written_len = 1;
+                }
+            }
+
+            // populate the USED ring
+            let used_ring = self.bus.virtio.queues[q_idx].used_ring;
+            let used_idx = self.bus.read16(used_ring + 2)?;
+            let used_elem_addr = used_ring + 4 + ((used_idx as u64 % size as u64) * 8);
+
+            self.bus.write32(used_elem_addr, desc_index as u32)?;
+            self.bus.write32(used_elem_addr + 4, written_len)?;
+
+            // advance the used_idx
+            self.bus.write16(used_ring + 2, used_idx.wrapping_add(1))?;
+
+            triggered = true;
+        }
+
+        // only fire the interrupt once we have processed everything in the batch!
+        if triggered {
+            self.bus.virtio.interrupt_status |= 0x1;
+            self.bus.plic.trigger_interrupt(1);
+        }
+
+        Ok(())
+    }
+
+    fn read_virtq_desc(&mut self, addr: u64) -> Result<VirtqDesc, Trap> {
+        Ok(VirtqDesc {
+            addr: self.bus.read64(addr)?,
+            len: self.bus.read32(addr + 8)?,
+            flags: self.bus.read16(addr + 12)?,
+            next: self.bus.read16(addr + 14)?,
+        })
+    }
+    fn read_blk_req_header(&mut self, addr: u64) -> Result<VirtIOBlkReqHeader, Trap> {
+        Ok(VirtIOBlkReqHeader {
+            request_type: self.bus.read32(addr)?,
+            reserved: self.bus.read32(addr + 4)?,
+            sector: self.bus.read64(addr + 8)?,
+        })
     }
 
     pub fn handle_interrupt(&mut self, cause: u64) -> Result<(), Trap> {
@@ -279,6 +413,7 @@ impl Cpu {
         }
     }
 }
+
 // trap handler
 impl Cpu {
     pub fn handle_trap(&mut self, trap: Trap) -> Result<(), Trap> {
