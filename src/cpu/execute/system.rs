@@ -93,6 +93,10 @@ pub fn sfence_vma(cpu: &mut Cpu, rs1: Reg, rs2: Reg) -> ExecResult {
         cpu.tlb.flush_page(vaddr, asid, false);
     }
 
+    for entry in cpu.decode_cache.iter_mut() {
+        entry.valid = false;
+    }
+
     Ok(ExecFlow::Next)
 }
 

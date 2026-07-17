@@ -1,12 +1,13 @@
 pub mod bus;
 pub mod csr;
+pub mod decoder_cache;
 pub mod execute;
 pub mod f_register;
 pub mod memory;
 pub mod register;
 
 use crate::{
-    cpu::{bus::Bus, csr::Csr},
+    cpu::{bus::Bus, csr::Csr, decoder_cache::DecodeEntry},
     decode::decode,
     devices::{
         Device,
@@ -42,6 +43,7 @@ pub struct Cpu {
     pub privilege_mode: PrivilegeMode,
     pub csr: Csr,
     pub tlb: Tlb,
+    pub decode_cache: [DecodeEntry; 4096],
     // reservation for LR/SC
     pub reservation: Option<u64>,
 
@@ -59,6 +61,7 @@ impl Cpu {
             privilege_mode: PrivilegeMode::Machine,
             csr: Csr::new(),
             tlb: Tlb::new(),
+            decode_cache: [DecodeEntry::default(); 4096],
             reservation: None,
 
             clock: 0,
@@ -137,19 +140,31 @@ impl Cpu {
             }
         }
 
-        let raw = match self.fetch() {
-            Ok(inst) => inst,
-            Err(trap) => {
-                #[cfg(debug_assertions)]
-                eprintln!("\n TRAP CAUGHT at PC 0x{:016x}: {:?}", self.pc, trap);
+        let cache_index = ((self.pc >> 1) % 4096) as usize;
+        let entry = self.decode_cache[cache_index];
 
-                self.handle_trap(trap)?;
-                return Ok(());
-            }
+        let (decoded, length) = if entry.valid && entry.pc == self.pc {
+            (entry.decoded, entry.length)
+        } else {
+            let raw = match self.fetch() {
+                Ok(inst) => inst,
+                Err(trap) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("\n TRAP CAUGHT at PC 0x{:016x}: {:?}", self.pc, trap);
+
+                    self.handle_trap(trap)?;
+                    return Ok(());
+                }
+            };
+
+            let decoded = decode(raw);
+            let length = decoded.length;
+
+            self.decode_cache[cache_index] = DecodeEntry { pc: self.pc, valid: true, decoded, length };
+
+            (decoded, length)
         };
 
-        let decoded = decode(raw);
-        let length = decoded.length;
         self.current_instruction_length = length;
 
         match execute::execute(decoded, self) {

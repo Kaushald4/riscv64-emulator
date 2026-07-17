@@ -201,8 +201,8 @@ pub fn execute(decoded: DecodedInstruction, cpu: &mut Cpu) -> ExecResult {
         Instruction::FnmaddD { rd, rs1, rs2, rs3, rm } => rv64d::fnmadd_d(cpu, rd, rs1, rs2, rs3, rm),
 
         Instruction::Undefined { raw } => Err(Trap::IllegalInstruction(raw)),
-        // _ => {
-        //     panic!("Unimplemented instruction: {:#?}", decoded.instruction)
-        // }
+        _ => {
+            panic!("Unimplemented instruction: {:#?}", decoded.instruction)
+        }
     }
 }

@@ -1,14 +1,17 @@
+use std::default;
+
 use crate::cpu::f_register::FReg;
 use crate::cpu::register::Reg;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct DecodedInstruction {
     pub instruction: Instruction,
     pub length: u8,
 }
-
-#[derive(Debug, Clone, Copy)]
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum Instruction {
+    
     // Type I RV32I ALU immediate instructions
     Addi { rd: Reg, rs1: Reg, imm: i64 },
     Slti { rd: Reg, rs1: Reg, imm: i64 },
@@ -201,5 +204,9 @@ pub enum Instruction {
     FmsubD { rd: FReg, rs1: FReg, rs2: FReg, rs3: FReg, rm: u8 },
     FnmsubD { rd: FReg, rs1: FReg, rs2: FReg, rs3: FReg, rm: u8 },
     FnmaddD { rd: FReg, rs1: FReg, rs2: FReg, rs3: FReg, rm: u8 },
+
+    #[default]
+    Invalid,
+
     Undefined { raw: u32 },
 }
