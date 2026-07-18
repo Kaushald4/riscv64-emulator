@@ -6,11 +6,11 @@ use crate::{
         plic::{PLIC_BASE, PLIC_SIZE, Plic},
         uart::{UART_BASE, UART_SIZE, Uart},
         virtio::{
-            block::{backend::FileBackend, device::VirtIOBlock},
+            block::device::VirtIOBlock,
             device::VirtioContext,
             mmio::VirtIOMmio,
             net::{
-                backend::{DummyBackend, NetworkBackend, TapBackend},
+                backend::{NetworkBackend, TapBackend},
                 device::VirtIONet,
             },
             transport,
@@ -19,7 +19,19 @@ use crate::{
     trap::Trap,
 };
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::devices::virtio::block::backend::FileBackend;
+
+#[cfg(target_arch = "wasm32")]
+use crate::devices::virtio::block::backend::MemoryBackend;
+
+#[cfg(not(target_arch = "wasm32"))]
 type VirtIOBlockDefault = VirtIOBlock<FileBackend>;
+
+#[cfg(target_arch = "wasm32")]
+type VirtIOBlockDefault = VirtIOBlock<MemoryBackend>;
+
+type VirtIONetDefault = VirtIONet;
 
 pub const RAM_BASE: u64 = 0x8000_0000;
 pub const VIRTIO_BASE: u64 = 0x1000_1000;
@@ -51,10 +63,10 @@ impl Device for Bus {
 }
 
 impl Bus {
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new(ram_size: usize) -> Self {
-        let ram = Memory::new(ram_size);
         Self {
-            ram,
+            ram: Memory::new(ram_size),
             misaligned: MisalignedAccess::Emulate,
             clint: Clint::new(),
             uart: Uart::new(),
@@ -62,15 +74,55 @@ impl Bus {
             virtio: VirtIOMmio::new(),
             virtio_net: VirtIOMmio::with_queues(2),
             virtio_block: VirtIOBlockDefault::new(FileBackend::new("kernel/base.img")),
-            // virtio_net_dev: VirtIONetDefault::new(DummyBackend::new()),
             virtio_net_dev: {
-                use crate::devices::virtio::net::backend::DummyBackend;
-                VirtIONet::new(TapBackend::new("tap0").map(|t| Box::new(t) as Box<dyn NetworkBackend>).unwrap_or_else(|e| {
-                    eprintln!("virtio-net: TAP unavailable ({}), falling back to no-op", e);
-                    Box::new(DummyBackend::new())
-                }))
+                VirtIONet::new(
+                    TapBackend::new("tap0")
+                        .map(|t| Box::new(t) as Box<dyn NetworkBackend>)
+                        .unwrap_or_else(|e| {
+                            eprintln!("virtio-net: TAP unavailable ({}), falling back to no-op", e);
+                            Box::new(crate::devices::virtio::net::backend::DummyBackend::new())
+                        }),
+                )
             },
         }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn new(ram_size: usize) -> Self {
+        use crate::devices::virtio::net::backend::{WebRtcBackend, DummyBackend};
+        Self {
+            ram: Memory::new(ram_size),
+            misaligned: MisalignedAccess::Emulate,
+            clint: Clint::new(),
+            uart: Uart::new(),
+            plic: Plic::new(),
+            virtio: VirtIOMmio::new(),
+            virtio_net: VirtIOMmio::with_queues(2),
+            virtio_block: VirtIOBlockDefault::new(MemoryBackend::new(524288)),
+            virtio_net_dev: VirtIONet::new(Box::new(WebRtcBackend::new())),
+        }
+    }
+
+    /// Load an external blob at the given physical address — used by the
+    /// WASM host to inject firmware, DTB, and kernel images at runtime.
+    pub fn load_external_image(&mut self, addr: u64, data: &[u8]) -> Result<(), Trap> {
+        for (i, byte) in data.iter().enumerate() {
+            self.write8(addr + i as u64, *byte)?;
+        }
+        Ok(())
+    }
+
+    /// Replace the virtio block disk image at runtime (WASM host provides
+    /// the raw disk bytes).
+    #[cfg(target_arch = "wasm32")]
+    pub fn load_block_image(&mut self, data: Vec<u8>) {
+        self.virtio_block = VirtIOBlockDefault::new(MemoryBackend::from_bytes(data));
+    }
+
+    /// Drain all pending virtio queue notifications (both block + net).
+    pub fn drain_all_virtio(&mut self) -> Result<(), Trap> {
+        self.drain_virtio_block()?;
+        self.drain_virtio_net()
     }
 
     #[inline]

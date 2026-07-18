@@ -1,5 +1,6 @@
 use crate::trap::Trap;
 use std::collections::VecDeque;
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::{self, Write};
 
 pub const UART_BASE: u64 = 0x1000_0000;
@@ -18,6 +19,7 @@ pub struct Uart {
     scr: u8,
     thr: u8,
     rbr: VecDeque<u8>,
+    tx_queue: VecDeque<u8>,
     tx_int_pending: bool,
 }
 
@@ -26,6 +28,7 @@ impl Uart {
         Self {
             lsr: 0x60,
             rbr: VecDeque::new(),
+            tx_queue: VecDeque::new(),
             tx_int_pending: false,
             ..Default::default()
         }
@@ -42,14 +45,14 @@ impl Uart {
     }
 
     pub fn push_rx(&mut self, byte: u8) -> bool {
-        // Push the new keystroke to the back of the queue
         self.rbr.push_back(byte);
-
-        // tell linux that data is ready
         self.lsr |= 0x01;
-
-        // return true if linux has enabled receiver data interrupts
         (self.ier & 0x01) != 0
+    }
+
+    /// Queue TX output for WASM console rendering.
+    pub fn pop_tx(&mut self) -> Option<u8> {
+        self.tx_queue.pop_front()
     }
 
     #[inline]
@@ -118,8 +121,15 @@ impl Uart {
                     self.dll = value;
                 } else {
                     self.thr = value;
-                    print!("{}", value as char);
-                    io::stdout().flush().unwrap();
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        print!("{}", value as char);
+                        io::stdout().flush().unwrap();
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        self.tx_queue.push_back(value);
+                    }
 
                     if (self.ier & 0x02) != 0 {
                         self.tx_int_pending = true;

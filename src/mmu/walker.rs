@@ -5,7 +5,6 @@ use crate::{
         address::VirtualAddress,
         pte::Pte,
         satp::{Satp, SatpMode},
-        tlb::Tlb,
         translation::Translation,
     },
     trap::Trap,
@@ -50,22 +49,22 @@ impl PageWalker {
         let vpn = virtual_address >> 12;
         let asid = satp.asid() as u16;
 
-        // --- 1. FAST PATH: TLB LOOKUP ---
+        // fast path - TLB lookup
         let index = crate::mmu::tlb::Tlb::hash(vpn);
         let entry = cpu.tlb.entries[index];
 
-        // Hit condition: Entry is valid AND (it is a Global page OR the ASID matches)
+        // hit condition - entry is valid & (it is a global page OR the ASID matches)
         if entry.valid && (entry.is_global || entry.asid == asid) {
-            // Apply the superpage mask to verify the VPN actually matches
+            // apply the superpage mask to verify the VPN actually matches
             let mask_vpn = vpn & !(entry.page_mask >> 12);
             let entry_vpn = entry.vpn & !(entry.page_mask >> 12);
 
             if mask_vpn == entry_vpn {
-                // Reconstruct the PTE from the cached bits and verify permissions
+                // reconstruct the PTE from the cached bits and verify permissions
                 let cached_pte = Pte::new(entry.pte_bits);
                 Self::check_permissions(cpu, cached_pte, access, virtual_address)?;
 
-                // Calculate final physical address using the cached base PPN and the exact page mask
+                // calculate final physical address using the cached base PPN and the exact page mask
                 let pa = (entry.ppn << 12) | (virtual_address & entry.page_mask);
 
                 return Ok(Translation {
@@ -76,7 +75,7 @@ impl PageWalker {
             }
         }
 
-        // --- 2. SLOW PATH: HARDWARE PAGE TABLE WALK ---
+        // slow path - hardware page table walk
         let mut level: i32 = 2;
         let mut table = satp.ppn() << Self::PAGE_SHIFT;
 
@@ -91,7 +90,7 @@ impl PageWalker {
             let pte_addr = table + walk_vpn * Self::PTE_SIZE;
             let pte = Pte::new(cpu.bus.read64(pte_addr)?);
 
-            // Spec step 3:
+            // spec
             if pte.is_invalid() {
                 return Err(Self::page_fault(access, virtual_address));
             }
@@ -100,31 +99,32 @@ impl PageWalker {
             if pte.is_leaf() {
                 Self::check_permissions(cpu, pte, access, virtual_address)?;
 
-                // --- 3. HARDWARE A/D BIT UPDATE (CRITICAL FIX) ---
-                // If the Accessed (bit 6) or Dirty (bit 7) bits are 0, the hardware MUST set them.
-                // Otherwise, Linux will get stuck in an infinite page fault loop!
+                // hardware A/D bit update
+                // if the accessed (bit 6) or dirty (bit 7) bits are 0, the hardware MUST set them.
+                // otherwise, Linux gets stuck in an infinite page fault loop
                 let mut pte_bits = pte.bits();
                 let mut pte_updated = false;
 
-                // Check Accessed bit (bit 6)
+                // check accessed bit (bit 6)
                 if (pte_bits & (1 << 6)) == 0 {
                     pte_bits |= 1 << 6;
                     pte_updated = true;
                 }
-                // Check Dirty bit (bit 7)
+                // check dirty bit (bit 7)
                 if access == AccessType::Write && (pte_bits & (1 << 7)) == 0 {
                     pte_bits |= 1 << 7;
                     pte_updated = true;
                 }
 
-                // Write the updated PTE back to physical memory
+                // write the updated PTE back to physical memory
                 if pte_updated {
                     cpu.bus.write64(pte_addr, pte_bits)?;
                 }
 
-                // --- 4. SUPERPAGE MASKING & PA CALCULATION ---
+                // superpage masking & PA calculation
                 let page_mask = match level {
-                    0 => 0xFFF, // 4 KiB page
+                    // 4 KiB page
+                    0 => 0xFFF,
                     1 => {
                         // 2 MiB page
                         if pte.ppn0() != 0 {
@@ -142,18 +142,20 @@ impl PageWalker {
                     _ => unreachable!(),
                 };
 
-                // Calculate the exact physical address
+                // calculate the exact physical address
                 let pa = (pte.ppn() << 12) | (virtual_address & page_mask);
 
-                // --- 5. CACHE FILL: POPULATE THE TLB ---
+                // cache fill - populate the TLB
                 cpu.tlb.entries[index] = crate::mmu::tlb::TlbEntry {
                     vpn,
                     asid,
-                    is_global: (pte_bits & (1 << 5)) != 0, // Global bit (bit 5)
+                    // global bit (bit 5)
+                    is_global: (pte_bits & (1 << 5)) != 0,
                     valid: true,
                     pte_bits,
                     page_mask,
-                    ppn: pte.ppn(), // Store the raw PPN base, NOT shifted pa
+                    // store the raw PPN base, NOT shifted pa
+                    ppn: pte.ppn(),
                 };
 
                 return Ok(Translation {
@@ -163,7 +165,7 @@ impl PageWalker {
                 });
             }
 
-            // spec step 5: descend to the next level.
+            // spec descend to the next level.
             level -= 1;
 
             if level < 0 {
@@ -213,7 +215,7 @@ impl PageWalker {
             }
 
             PrivilegeMode::User => {
-                // User must access only U pages.
+                // user must access only U pages.
                 if !pte.user() {
                     return Err(Self::page_fault(access, virtual_address));
                 }

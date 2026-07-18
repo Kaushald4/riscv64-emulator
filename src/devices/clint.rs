@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
 use crate::{devices::Device, trap::Trap};
@@ -10,12 +11,22 @@ const MTIMECMP_OFFSET: u64 = 0x4000;
 const MTIME_OFFSET: u64 = 0xBFF8;
 
 #[derive(Debug)]
+#[cfg(not(target_arch = "wasm32"))]
 pub struct Clint {
     pub msip: u32,
     pub mtimecmp: u64,
     pub mtime: u64,
 
     start_time: Instant,
+    pub frequency: u64,
+}
+
+#[derive(Debug)]
+#[cfg(target_arch = "wasm32")]
+pub struct Clint {
+    pub msip: u32,
+    pub mtimecmp: u64,
+    pub mtime: u64,
     pub frequency: u64,
 }
 
@@ -26,14 +37,24 @@ impl Device for Clint {
 }
 
 impl Clint {
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new() -> Self {
         Self {
             msip: 0,
             mtimecmp: u64::MAX,
             mtime: 0,
-
             start_time: Instant::now(),
-            frequency: 10_000_000, // 10 MHz
+            frequency: 10_000_000,
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn new() -> Self {
+        Self {
+            msip: 0,
+            mtimecmp: u64::MAX,
+            mtime: 0,
+            frequency: 10_000_000,
         }
     }
 

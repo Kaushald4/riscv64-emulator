@@ -164,3 +164,82 @@ impl NetworkBackend for TapBackend {
         Ok(None)
     }
 }
+
+// ── WebRTC backend (WASM browser target) ──
+//
+// The JavaScript host implements these three imports.
+// On native targets they are stubbed out (won't link).
+//
+//   fn __webrtc_send(frame_ptr: *const u8, len: usize) -> i32;
+//   fn __webrtc_recv(buf_ptr: *mut u8, max_len: usize) -> i32;
+//   fn __webrtc_mac(mac_out: *mut u8);
+
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "env")]
+unsafe extern "C" {
+    fn __webrtc_send(frame_ptr: *const u8, len: usize) -> i32;
+    fn __webrtc_recv(buf_ptr: *mut u8, max_len: usize) -> i32;
+    fn __webrtc_mac(mac_out: *mut u8);
+}
+
+#[cfg(target_arch = "wasm32")]
+pub struct WebRtcBackend {
+    mac: [u8; 6],
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub struct WebRtcBackend;
+
+#[cfg(target_arch = "wasm32")]
+impl WebRtcBackend {
+    pub fn new() -> Self {
+        let mut mac = [0u8; 6];
+        unsafe {
+            __webrtc_mac(mac.as_mut_ptr());
+        }
+        Self { mac }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl NetworkBackend for WebRtcBackend {
+    fn mac_address(&self) -> [u8; 6] {
+        self.mac
+    }
+
+    fn send(&mut self, frame: &[u8]) -> Result<(), NetworkError> {
+        let ret = unsafe { __webrtc_send(frame.as_ptr(), frame.len()) };
+        if ret < 0 {
+            return Err(NetworkError::Io);
+        }
+        Ok(())
+    }
+
+    fn receive(&mut self, buffer: &mut [u8]) -> Result<Option<usize>, NetworkError> {
+        let ret = unsafe { __webrtc_recv(buffer.as_mut_ptr(), buffer.len()) };
+        if ret <= 0 {
+            return Ok(None);
+        }
+        Ok(Some(ret as usize))
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl WebRtcBackend {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl NetworkBackend for WebRtcBackend {
+    fn mac_address(&self) -> [u8; 6] {
+        [0x52, 0x54, 0x00, 0x12, 0x34, 0x56]
+    }
+    fn send(&mut self, _frame: &[u8]) -> Result<(), NetworkError> {
+        Ok(())
+    }
+    fn receive(&mut self, _buffer: &mut [u8]) -> Result<Option<usize>, NetworkError> {
+        Ok(None)
+    }
+}
