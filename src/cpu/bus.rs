@@ -6,10 +6,14 @@ use crate::{
         plic::{PLIC_BASE, PLIC_SIZE, Plic},
         uart::{UART_BASE, UART_SIZE, Uart},
         virtio::{
+            block::{backend::FileBackend, device::VirtIOBlock},
+            device::VirtioContext,
             mmio::VirtIOMmio,
-            block::device::VirtIOBlock,
-            block::backend::FileBackend,
-            device::VirtIODevice,
+            net::{
+                backend::{DummyBackend, NetworkBackend, TapBackend},
+                device::VirtIONet,
+            },
+            transport,
         },
     },
     trap::Trap,
@@ -19,6 +23,7 @@ type VirtIOBlockDefault = VirtIOBlock<FileBackend>;
 
 pub const RAM_BASE: u64 = 0x8000_0000;
 pub const VIRTIO_BASE: u64 = 0x1000_1000;
+pub const VIRTIO_NET_BASE: u64 = 0x1000_2000;
 pub const VIRTIO_SIZE: u64 = 0x1000;
 
 #[derive(Debug, Clone, Copy)]
@@ -34,7 +39,9 @@ pub struct Bus {
     pub uart: Uart,
     pub plic: Plic,
     pub virtio: VirtIOMmio,
+    pub virtio_net: VirtIOMmio,
     pub virtio_block: VirtIOBlockDefault,
+    pub virtio_net_dev: VirtIONet,
 }
 
 impl Device for Bus {
@@ -53,7 +60,16 @@ impl Bus {
             uart: Uart::new(),
             plic: Plic::new(),
             virtio: VirtIOMmio::new(),
+            virtio_net: VirtIOMmio::with_queues(2),
             virtio_block: VirtIOBlockDefault::new(FileBackend::new("kernel/base.img")),
+            // virtio_net_dev: VirtIONetDefault::new(DummyBackend::new()),
+            virtio_net_dev: {
+                use crate::devices::virtio::net::backend::DummyBackend;
+                VirtIONet::new(TapBackend::new("tap0").map(|t| Box::new(t) as Box<dyn NetworkBackend>).unwrap_or_else(|e| {
+                    eprintln!("virtio-net: TAP unavailable ({}), falling back to no-op", e);
+                    Box::new(DummyBackend::new())
+                }))
+            },
         }
     }
 
@@ -72,7 +88,21 @@ impl Bus {
         Ok(offset)
     }
 
-    fn drain_virtio(&mut self) -> Result<(), Trap> {
+    fn virtio_block_read32(&self, offset: u64) -> u32 {
+        use crate::devices::virtio::device::VirtIODevice;
+        self.virtio.read32(self.virtio_block.device_id(), self.virtio_block.host_features(), |off| self.virtio_block.read_config32(off), offset)
+    }
+
+    fn virtio_net_read32(&self, offset: u64) -> u32 {
+        use crate::devices::virtio::device::VirtIODevice;
+        self.virtio_net.read32(self.virtio_net_dev.device_id(), self.virtio_net_dev.host_features(), |off| self.virtio_net_dev.read_config32(off), offset)
+    }
+
+    fn virtio_offset(&self, addr: u64, base: u64) -> Option<u64> {
+        if (base..base + VIRTIO_SIZE).contains(&addr) { Some(addr - base) } else { None }
+    }
+
+    fn drain_virtio_block(&mut self) -> Result<(), Trap> {
         let Bus { ram, plic, virtio, virtio_block, .. } = self;
 
         while let Some(queue_idx) = virtio.take_queue_notify() {
@@ -82,7 +112,41 @@ impl Bus {
                 continue;
             }
 
-            virtio_block.process_queue(ram, queue, plic, &mut virtio.interrupt_status)?;
+            let mut ctx = VirtioContext {
+                memory: ram,
+                plic,
+                interrupt_status: &mut virtio.interrupt_status,
+                irq: 1,
+            };
+            transport::drain_queue(virtio_block, &mut ctx, queue, queue_idx)?;
+        }
+
+        Ok(())
+    }
+
+    fn drain_virtio_net(&mut self) -> Result<(), Trap> {
+        let Bus { ram, plic, virtio_net, virtio_net_dev, .. } = self;
+
+        while let Some(queue_idx) = virtio_net.take_queue_notify() {
+            // RX queue (0) is never notified by the driver — only TX.
+            // Skip RX to avoid interrupt storms.
+            if queue_idx == 0 {
+                continue;
+            }
+
+            let queue = &mut virtio_net.queues[queue_idx as usize];
+
+            if !queue.ready {
+                continue;
+            }
+
+            let mut ctx = VirtioContext {
+                memory: ram,
+                plic,
+                interrupt_status: &mut virtio_net.interrupt_status,
+                irq: 2,
+            };
+            transport::drain_queue(virtio_net_dev, &mut ctx, queue, queue_idx)?;
         }
 
         Ok(())
@@ -109,6 +173,21 @@ impl Bus {
         if (PLIC_BASE..PLIC_BASE + PLIC_SIZE).contains(&addr) {
             return self.plic.read8(addr);
         }
+        // narrow reads on virtio MMIO: allow only for config space
+        if let Some(off) = self.virtio_offset(addr, VIRTIO_BASE) {
+            if off >= 0x100 {
+                let val = self.virtio_block_read32(off & !3);
+                return Ok((val >> ((addr & 3) * 8)) as u8);
+            }
+            return Err(Trap::LoadAccessFault(addr));
+        }
+        if let Some(off) = self.virtio_offset(addr, VIRTIO_NET_BASE) {
+            if off >= 0x100 {
+                let val = self.virtio_net_read32(off & !3);
+                return Ok((val >> ((addr & 3) * 8)) as u8);
+            }
+            return Err(Trap::LoadAccessFault(addr));
+        }
 
         let offset = self.ram_offset(addr, Trap::LoadAccessFault(addr))?;
         self.ram.read8(offset)
@@ -133,6 +212,21 @@ impl Bus {
         }
         if (PLIC_BASE..PLIC_BASE + PLIC_SIZE).contains(&addr) {
             return self.plic.read16(addr);
+        }
+        // Narrow reads on virtio MMIO: allow only for config space
+        if let Some(off) = self.virtio_offset(addr, VIRTIO_BASE) {
+            if off >= 0x100 {
+                let val = self.virtio_block_read32(off & !3);
+                return Ok((val >> ((addr & 3) * 8)) as u16);
+            }
+            return Err(Trap::LoadAccessFault(addr));
+        }
+        if let Some(off) = self.virtio_offset(addr, VIRTIO_NET_BASE) {
+            if off >= 0x100 {
+                let val = self.virtio_net_read32(off & !3);
+                return Ok((val >> ((addr & 3) * 8)) as u16);
+            }
+            return Err(Trap::LoadAccessFault(addr));
         }
 
         if matches!(self.misaligned, MisalignedAccess::Emulate) && addr & 3 != 0 {
@@ -163,10 +257,10 @@ impl Bus {
             return self.plic.read32(addr);
         }
         if (VIRTIO_BASE..VIRTIO_BASE + VIRTIO_SIZE).contains(&addr) {
-            use crate::devices::virtio::device::VirtIODevice;
-            let id = self.virtio_block.device_id();
-            let features = self.virtio_block.host_features();
-            return Ok(self.virtio.read32(id, features, |off| self.virtio_block.read_config32(off), addr - VIRTIO_BASE));
+            return Ok(self.virtio_block_read32(addr - VIRTIO_BASE));
+        }
+        if (VIRTIO_NET_BASE..VIRTIO_NET_BASE + VIRTIO_SIZE).contains(&addr) {
+            return Ok(self.virtio_net_read32(addr - VIRTIO_NET_BASE));
         }
 
         if matches!(self.misaligned, MisalignedAccess::Emulate) && addr & 3 != 0 {
@@ -272,7 +366,12 @@ impl Bus {
         }
         if (VIRTIO_BASE..VIRTIO_BASE + VIRTIO_SIZE).contains(&addr) {
             self.virtio.write32(addr - VIRTIO_BASE, value);
-            self.drain_virtio()?;
+            self.drain_virtio_block()?;
+            return Ok(());
+        }
+        if (VIRTIO_NET_BASE..VIRTIO_NET_BASE + VIRTIO_SIZE).contains(&addr) {
+            self.virtio_net.write32(addr - VIRTIO_NET_BASE, value);
+            self.drain_virtio_net()?;
             return Ok(());
         }
 

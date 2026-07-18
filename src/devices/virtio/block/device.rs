@@ -1,8 +1,11 @@
 use crate::{
-    cpu::memory::Memory,
     devices::{
-        plic::Plic,
-        virtio::{device::VirtIODevice, features::*, queue::VirtQueue, transport},
+        virtio::{
+            descriptor::VirtqDesc,
+            device::VirtIODevice,
+            device::VirtioContext,
+            features::*,
+        },
     },
     trap::Trap,
 };
@@ -54,85 +57,63 @@ impl<B: BlockBackend> VirtIODevice for VirtIOBlock<B> {
         }
     }
 
-    fn process_queue(&mut self, mem: &mut Memory, queue: &mut VirtQueue, plic: &mut Plic, interrupt_status: &mut u32) -> Result<(), Trap> {
-        let mut triggered = false;
+    fn process_descriptor_chain(&mut self, ctx: &mut VirtioContext, chain: &[VirtqDesc], _queue_idx: u16) -> Result<u32, Trap> {
+        let header_desc = &chain[0];
+        let header = VirtIOBlkReqHeader::read(ctx.memory, header_desc.addr)?;
+        let req_type = RequestType::from(header.request_type);
 
-        loop {
-            let Some((desc_head, head_desc)) = queue.pop_descriptor(mem)? else {
-                break;
-            };
+        let status_desc = chain.last().unwrap();
 
-            let chain = transport::collect_chain(mem, queue, head_desc)?;
+        Ok(match req_type {
+            RequestType::In => {
+                let mut current_sector_offset = header.sector as usize * 512;
+                let mut total_data = 0u32;
 
-            let header_desc = &chain[0];
-            let header = VirtIOBlkReqHeader::read(mem, header_desc.addr)?;
-            let req_type = RequestType::from(header.request_type);
-
-            // Last descriptor in chain is always the status byte.
-            let status_desc = chain.last().unwrap();
-            let written_len;
-
-            match req_type {
-                RequestType::In => {
-                    let mut current_sector_offset = header.sector as usize * 512;
-                    let mut total_data = 0u32;
-
-                    for data_desc in &chain[1..chain.len() - 1] {
-                        let length = data_desc.len as usize;
-                        let chunk = self.backend.read(current_sector_offset, length);
-                        mem.load(data_desc.addr - 0x8000_0000, &chunk)?;
-                        current_sector_offset += length;
-                        total_data += data_desc.len;
-                    }
-                    mem.write8(status_desc.addr - 0x8000_0000, VIRTIO_BLK_S_OK)?;
-                    written_len = total_data + 1;
+                for data_desc in &chain[1..chain.len() - 1] {
+                    let length = data_desc.len as usize;
+                    let chunk = self.backend.read(current_sector_offset, length);
+                    ctx.memory.load(data_desc.addr - 0x8000_0000, &chunk)?;
+                    current_sector_offset += length;
+                    total_data += data_desc.len;
                 }
-
-                RequestType::Out => {
-                    let mut current_sector_offset = header.sector as usize * 512;
-
-                    for data_desc in &chain[1..chain.len() - 1] {
-                        let length = data_desc.len as usize;
-                        let mut buf = vec![0u8; length];
-                        mem.read_bulk(data_desc.addr - 0x8000_0000, &mut buf)?;
-                        self.backend.write(current_sector_offset, &buf);
-                        current_sector_offset += length;
-                    }
-                    mem.write8(status_desc.addr - 0x8000_0000, VIRTIO_BLK_S_OK)?;
-                    written_len = 1;
-                }
-
-                RequestType::Flush => {
-                    mem.write8(status_desc.addr - 0x8000_0000, VIRTIO_BLK_S_OK)?;
-                    written_len = 1;
-                }
-
-                RequestType::GetId => {
-                    let data_desc = &chain[1];
-                    let mut buf = [0u8; 20];
-                    let id = b"glasshart-block";
-                    let len = id.len().min(buf.len());
-                    buf[..len].copy_from_slice(&id[..len]);
-                    mem.load(data_desc.addr - 0x8000_0000, &buf)?;
-                    mem.write8(status_desc.addr - 0x8000_0000, VIRTIO_BLK_S_OK)?;
-                    written_len = data_desc.len + 1;
-                }
-
-                RequestType::Unknown => {
-                    mem.write8(status_desc.addr - 0x8000_0000, VIRTIO_BLK_S_UNSUPP)?;
-                    written_len = 1;
-                }
+                ctx.memory.write8(status_desc.addr - 0x8000_0000, VIRTIO_BLK_S_OK)?;
+                total_data + 1
             }
 
-            transport::write_used_ring(mem, queue, desc_head, written_len)?;
-            triggered = true;
-        }
+            RequestType::Out => {
+                let mut current_sector_offset = header.sector as usize * 512;
 
-        if triggered {
-            *interrupt_status |= 0x1;
-            plic.trigger_interrupt(1);
-        }
+                for data_desc in &chain[1..chain.len() - 1] {
+                    let length = data_desc.len as usize;
+                    let mut buf = vec![0u8; length];
+                    ctx.memory.read_bulk(data_desc.addr - 0x8000_0000, &mut buf)?;
+                    self.backend.write(current_sector_offset, &buf);
+                    current_sector_offset += length;
+                }
+                ctx.memory.write8(status_desc.addr - 0x8000_0000, VIRTIO_BLK_S_OK)?;
+                1
+            }
 
-        Ok(())
+            RequestType::Flush => {
+                ctx.memory.write8(status_desc.addr - 0x8000_0000, VIRTIO_BLK_S_OK)?;
+                1
+            }
+
+            RequestType::GetId => {
+                let data_desc = &chain[1];
+                let mut buf = [0u8; 20];
+                let id = b"glasshart-block";
+                let len = id.len().min(buf.len());
+                buf[..len].copy_from_slice(&id[..len]);
+                ctx.memory.load(data_desc.addr - 0x8000_0000, &buf)?;
+                ctx.memory.write8(status_desc.addr - 0x8000_0000, VIRTIO_BLK_S_OK)?;
+                data_desc.len + 1
+            }
+
+            RequestType::Unknown => {
+                ctx.memory.write8(status_desc.addr - 0x8000_0000, VIRTIO_BLK_S_UNSUPP)?;
+                1
+            }
+        })
     }
 }

@@ -1,6 +1,7 @@
 use crate::{cpu::memory::Memory, trap::Trap};
 
 use super::descriptor::VirtqDesc;
+use super::device::{VirtIODevice, VirtioContext};
 use super::queue::VirtQueue;
 
 const RAM_BASE: u64 = 0x8000_0000;
@@ -20,7 +21,6 @@ pub fn write_used_ring(mem: &mut Memory, queue: &VirtQueue, desc_head: u16, len:
 pub fn collect_chain(mem: &Memory, queue: &VirtQueue, head_desc: VirtqDesc) -> Result<Vec<VirtqDesc>, Trap> {
     let mut chain = Vec::with_capacity(8);
 
-    // VIRTQ_DESC_F_INDIRECT (0x04)
     if head_desc.flags & 0x04 != 0 {
         let indirect_table = head_desc.addr;
         let mut next_idx = 0u16;
@@ -56,4 +56,26 @@ pub fn collect_chain(mem: &Memory, queue: &VirtQueue, head_desc: VirtqDesc) -> R
     }
 
     Ok(chain)
+}
+
+pub fn drain_queue<D: VirtIODevice>(device: &mut D, ctx: &mut VirtioContext, queue: &mut VirtQueue, queue_idx: u16) -> Result<bool, Trap> {
+    let mut triggered = false;
+
+    loop {
+        let Some((desc_head, head_desc)) = queue.pop_descriptor(ctx.memory)? else {
+            break;
+        };
+
+        let chain = collect_chain(ctx.memory, queue, head_desc)?;
+        let written_len = device.process_descriptor_chain(ctx, &chain, queue_idx)?;
+        write_used_ring(ctx.memory, queue, desc_head, written_len)?;
+        triggered = true;
+    }
+
+    if triggered {
+        *ctx.interrupt_status |= 0x1;
+        ctx.plic.trigger_interrupt(ctx.irq);
+    }
+
+    Ok(triggered)
 }

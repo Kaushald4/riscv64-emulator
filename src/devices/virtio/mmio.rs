@@ -18,6 +18,10 @@ pub struct VirtIOMmio {
 
 impl VirtIOMmio {
     pub fn new() -> Self {
+        Self::with_queues(1)
+    }
+
+    pub fn with_queues(n: usize) -> Self {
         Self {
             status: 0,
             device_features_sel: 0,
@@ -25,7 +29,7 @@ impl VirtIOMmio {
             driver_features: 0,
             queue_sel: 0,
             interrupt_status: 0,
-            queues: vec![VirtQueue::default()],
+            queues: vec![VirtQueue::default(); n],
             queue_notify: None,
         }
     }
