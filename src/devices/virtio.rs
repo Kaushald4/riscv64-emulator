@@ -1,7 +1,9 @@
 pub mod block;
 pub mod config;
 pub mod descriptor;
+pub mod device;
 pub mod features;
 pub mod mmio;
+pub mod net;
 pub mod queue;
-pub mod request;
+pub mod transport;

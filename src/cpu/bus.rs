@@ -5,10 +5,17 @@ use crate::{
         clint::{CLINT_BASE, CLINT_SIZE, Clint},
         plic::{PLIC_BASE, PLIC_SIZE, Plic},
         uart::{UART_BASE, UART_SIZE, Uart},
-        virtio::mmio::VirtIOMmio,
+        virtio::{
+            mmio::VirtIOMmio,
+            block::device::VirtIOBlock,
+            block::backend::FileBackend,
+            device::VirtIODevice,
+        },
     },
     trap::Trap,
 };
+
+type VirtIOBlockDefault = VirtIOBlock<FileBackend>;
 
 pub const RAM_BASE: u64 = 0x8000_0000;
 pub const VIRTIO_BASE: u64 = 0x1000_1000;
@@ -21,12 +28,13 @@ pub enum MisalignedAccess {
 }
 
 pub struct Bus {
-    ram: Memory,
+    pub ram: Memory,
     misaligned: MisalignedAccess,
     pub clint: Clint,
     pub uart: Uart,
     pub plic: Plic,
     pub virtio: VirtIOMmio,
+    pub virtio_block: VirtIOBlockDefault,
 }
 
 impl Device for Bus {
@@ -37,13 +45,15 @@ impl Device for Bus {
 
 impl Bus {
     pub fn new(ram_size: usize) -> Self {
+        let ram = Memory::new(ram_size);
         Self {
-            ram: Memory::new(ram_size),
+            ram,
             misaligned: MisalignedAccess::Emulate,
             clint: Clint::new(),
             uart: Uart::new(),
             plic: Plic::new(),
             virtio: VirtIOMmio::new(),
+            virtio_block: VirtIOBlockDefault::new(FileBackend::new("kernel/base.img")),
         }
     }
 
@@ -60,6 +70,22 @@ impl Bus {
         }
 
         Ok(offset)
+    }
+
+    fn drain_virtio(&mut self) -> Result<(), Trap> {
+        let Bus { ram, plic, virtio, virtio_block, .. } = self;
+
+        while let Some(queue_idx) = virtio.take_queue_notify() {
+            let queue = &mut virtio.queues[queue_idx as usize];
+
+            if !queue.ready {
+                continue;
+            }
+
+            virtio_block.process_queue(ram, queue, plic, &mut virtio.interrupt_status)?;
+        }
+
+        Ok(())
     }
 
     // reads
@@ -137,7 +163,10 @@ impl Bus {
             return self.plic.read32(addr);
         }
         if (VIRTIO_BASE..VIRTIO_BASE + VIRTIO_SIZE).contains(&addr) {
-            return Ok(self.virtio.read32(addr - VIRTIO_BASE));
+            use crate::devices::virtio::device::VirtIODevice;
+            let id = self.virtio_block.device_id();
+            let features = self.virtio_block.host_features();
+            return Ok(self.virtio.read32(id, features, |off| self.virtio_block.read_config32(off), addr - VIRTIO_BASE));
         }
 
         if matches!(self.misaligned, MisalignedAccess::Emulate) && addr & 3 != 0 {
@@ -243,6 +272,7 @@ impl Bus {
         }
         if (VIRTIO_BASE..VIRTIO_BASE + VIRTIO_SIZE).contains(&addr) {
             self.virtio.write32(addr - VIRTIO_BASE, value);
+            self.drain_virtio()?;
             return Ok(());
         }
 
@@ -287,7 +317,6 @@ impl Bus {
         self.ram.load(offset, bytes)
     }
 
-    // for virtio disk
     pub fn read_dma(&self, addr: u64, buffer: &mut [u8]) -> Result<(), Trap> {
         if addr >= RAM_BASE { self.ram.read_bulk(addr - RAM_BASE, buffer) } else { Err(Trap::LoadAccessFault(addr)) }
     }

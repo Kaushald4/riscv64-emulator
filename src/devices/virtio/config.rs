@@ -1,7 +1,6 @@
 pub const VIRTIO_MAGIC: u32 = 0x7472_6976; // "virt"
 pub const VIRTIO_VERSION: u32 = 2;
 pub const VIRTIO_VENDOR_ID: u32 = 0x554d4551;
-pub const VIRTIO_DEVICE_BLOCK: u32 = 2;
 
 // MMIO register offsets
 pub const MAGIC_VALUE: u64 = 0x000;

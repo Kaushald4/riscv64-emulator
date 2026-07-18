@@ -9,10 +9,7 @@ pub mod register;
 use crate::{
     cpu::{bus::Bus, csr::Csr, decoder_cache::DecodeEntry},
     decode::decode,
-    devices::{
-        Device,
-        virtio::{descriptor::VirtqDesc, request::VirtIOBlkReqHeader},
-    },
+    devices::Device,
     mmu::{Mmu, tlb::Tlb},
     trap::Trap,
 };
@@ -116,9 +113,6 @@ impl Cpu {
         }
 
         if self.clock % 1000 == 0 {
-            if let Some(queue) = self.bus.virtio.take_queue_notify() {
-                self.process_virtio_queue(queue)?;
-            }
 
             let (meip, seip) = self.bus.plic.evaluate_interrupt();
 
@@ -194,151 +188,6 @@ impl Cpu {
         }
 
         Ok(())
-    }
-
-    fn process_virtio_queue(&mut self, queue: u16) -> Result<(), Trap> {
-        let q_idx = queue as usize;
-        let ready = self.bus.virtio.queues[q_idx].ready;
-
-        if !ready {
-            return Ok(());
-        }
-
-        let avail_ring = self.bus.virtio.queues[q_idx].avail_ring;
-        let size = self.bus.virtio.queues[q_idx].size;
-        let mut triggered = false;
-
-        loop {
-            let last_avail_idx = self.bus.virtio.queues[q_idx].last_avail_idx;
-            let avail_idx = self.bus.read16(avail_ring + 2)?;
-
-            if last_avail_idx == avail_idx {
-                break;
-            }
-
-            let ring_entry = avail_ring + 4 + ((last_avail_idx as u64 % size as u64) * 2);
-            let desc_index = self.bus.read16(ring_entry)?;
-
-            self.bus.virtio.queues[q_idx].last_avail_idx = last_avail_idx.wrapping_add(1);
-
-            let desc_table = self.bus.virtio.queues[q_idx].desc_table;
-            let initial_desc = self.read_virtq_desc(desc_table + (desc_index as u64 * 16))?;
-
-            let mut desc_chain = Vec::new();
-
-            if initial_desc.flags & 0x04 != 0 {
-                let indirect_table = initial_desc.addr;
-                let mut next_idx = 0;
-                loop {
-                    let d = self.read_virtq_desc(indirect_table + (next_idx as u64 * 16))?;
-                    let has_next = (d.flags & 0x01) != 0;
-                    next_idx = d.next;
-                    desc_chain.push(d);
-                    if !has_next {
-                        break;
-                    }
-                }
-            } else {
-                let mut d = initial_desc;
-                loop {
-                    let has_next = (d.flags & 0x01) != 0;
-                    let next_idx = d.next;
-                    desc_chain.push(d);
-                    if !has_next {
-                        break;
-                    }
-                    d = self.read_virtq_desc(desc_table + (next_idx as u64 * 16))?;
-                }
-            }
-
-            if desc_chain.len() < 2 {
-                return Err(Trap::StoreAccessFault(0));
-            }
-
-            let header_desc = desc_chain[0];
-            let status_desc = desc_chain[desc_chain.len() - 1];
-
-            let header = self.read_blk_req_header(header_desc.addr)?;
-            let mut written_len = 0;
-
-            match header.request_type {
-                0 => {
-                    // Read (Disk -> RAM)
-                    let mut current_sector_offset = header.sector as usize * 512;
-
-                    for data_desc in &desc_chain[1..desc_chain.len() - 1] {
-                        let length = data_desc.len as usize;
-                        let disk_chunk = self.bus.virtio.device.image[current_sector_offset..current_sector_offset + length].to_vec();
-
-                        self.bus.write_dma(data_desc.addr, &disk_chunk)?;
-                        current_sector_offset += length;
-                        written_len += length as u32;
-                    }
-                    // 0 = VIRTIO_BLK_S_OK
-                    self.bus.write8(status_desc.addr, 0)?;
-                    written_len += 1;
-                }
-                1 => {
-                    // Write (RAM -> Disk)
-                    let mut current_sector_offset = header.sector as usize * 512;
-
-                    for data_desc in &desc_chain[1..desc_chain.len() - 1] {
-                        let length = data_desc.len as usize;
-                        let mut buffer = vec![0u8; length];
-
-                        self.bus.read_dma(data_desc.addr, &mut buffer)?;
-                        self.bus.virtio.device.image[current_sector_offset..current_sector_offset + length].copy_from_slice(&buffer);
-                        current_sector_offset += length;
-                    }
-
-                    self.bus.write8(status_desc.addr, 0)?;
-                    written_len = 1;
-                }
-                4 => {
-                    // VIRTIO_BLK_T_FLUSH (Type 4)
-                    self.bus.write8(status_desc.addr, 0)?;
-                    written_len = 1;
-                }
-                _ => {
-                    // unsupported operation error fallback
-                    //  2 = VIRTIO_BLK_S_UNSUPP
-                    self.bus.write8(status_desc.addr, 2)?;
-                    written_len = 1;
-                }
-            }
-
-            let used_ring = self.bus.virtio.queues[q_idx].used_ring;
-            let used_idx = self.bus.read16(used_ring + 2)?;
-            let used_elem_addr = used_ring + 4 + ((used_idx as u64 % size as u64) * 8);
-
-            self.bus.write32(used_elem_addr, desc_index as u32)?;
-            self.bus.write32(used_elem_addr + 4, written_len)?;
-            self.bus.write16(used_ring + 2, used_idx.wrapping_add(1))?;
-
-            triggered = true;
-        }
-
-        if triggered {
-            self.bus.virtio.interrupt_status |= 0x1;
-            self.bus.plic.trigger_interrupt(1);
-        }
-
-        Ok(())
-    }
-    fn read_virtq_desc(&mut self, addr: u64) -> Result<VirtqDesc, Trap> {
-        Ok(VirtqDesc {
-            addr: self.bus.read64(addr)?,
-            len: self.bus.read32(addr + 8)?,
-            flags: self.bus.read16(addr + 12)?,
-            next: self.bus.read16(addr + 14)?,
-        })
-    }
-    fn read_blk_req_header(&mut self, addr: u64) -> Result<VirtIOBlkReqHeader, Trap> {
-        Ok(VirtIOBlkReqHeader {
-            request_type: self.bus.read32(addr)?,
-            reserved: self.bus.read32(addr + 4)?,
-            sector: self.bus.read64(addr + 8)?,
-        })
     }
 
     pub fn handle_interrupt(&mut self, cause: u64) -> Result<(), Trap> {
