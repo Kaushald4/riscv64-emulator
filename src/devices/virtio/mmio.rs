@@ -51,7 +51,7 @@ impl VirtIOMmio {
                     (host_features >> 32) as u32
                 }
             }
-            QUEUE_NUM_MAX => 128,
+            QUEUE_NUM_MAX => 256,
             STATUS => self.status,
             INTERRUPT_STATUS => self.interrupt_status,
             CONFIG_GENERATION => 0,
@@ -68,6 +68,15 @@ impl VirtIOMmio {
                     self.driver_features = (self.driver_features & !0xffff_ffff) | value as u64;
                 } else {
                     self.driver_features = (self.driver_features & 0xffff_ffff) | ((value as u64) << 32);
+                }
+                // Feature negotiation is complete for this device: propagate
+                // the per-queue flags that the transport layer needs to know
+                // about. We do this on every DRIVER_FEATURES write so the
+                // queues pick up the final negotiated set after the guest
+                // finishes writing both halves of the 64-bit value.
+                let event_idx_on = (self.driver_features & super::features::VIRTIO_RING_F_EVENT_IDX) != 0;
+                for q in &mut self.queues {
+                    q.event_idx_enabled = event_idx_on;
                 }
             }
             STATUS => self.status = value,

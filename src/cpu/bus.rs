@@ -31,12 +31,16 @@ type VirtIOBlockDefault = VirtIOBlock<FileBackend>;
 #[cfg(target_arch = "wasm32")]
 type VirtIOBlockDefault = VirtIOBlock<MemoryBackend>;
 
-type VirtIONetDefault = VirtIONet;
-
 pub const RAM_BASE: u64 = 0x8000_0000;
 pub const VIRTIO_BASE: u64 = 0x1000_1000;
 pub const VIRTIO_NET_BASE: u64 = 0x1000_2000;
 pub const VIRTIO_SIZE: u64 = 0x1000;
+
+/// PLIC IRQ lines. These must match the device tree (`examples/virt.dtb`):
+///   virtio_mmio@10001000 (block) → interrupts = 1
+///   virtio_mmio@10002000 (net)   → interrupts = 3
+pub const VIRTIO_BLOCK_IRQ: u32 = 1;
+pub const VIRTIO_NET_IRQ: u32 = 3;
 
 #[derive(Debug, Clone, Copy)]
 pub enum MisalignedAccess {
@@ -89,7 +93,7 @@ impl Bus {
 
     #[cfg(target_arch = "wasm32")]
     pub fn new(ram_size: usize) -> Self {
-        use crate::devices::virtio::net::backend::{WebRtcBackend, DummyBackend};
+        use crate::devices::virtio::net::backend::WebRtcBackend;
         Self {
             ram: Memory::new(ram_size),
             misaligned: MisalignedAccess::Emulate,
@@ -119,10 +123,13 @@ impl Bus {
         self.virtio_block = VirtIOBlockDefault::new(MemoryBackend::from_bytes(data));
     }
 
-    /// Drain all pending virtio queue notifications (both block + net).
+    /// Drain all pending virtio work: block I/O, net TX (doorbell-driven), and
+    /// net RX (polled every tick so frames the host pushes via WebRTC make it
+    /// into the guest's RX buffers).
     pub fn drain_all_virtio(&mut self) -> Result<(), Trap> {
         self.drain_virtio_block()?;
-        self.drain_virtio_net()
+        self.drain_virtio_net_tx()?;
+        self.drain_virtio_net_rx()
     }
 
     #[inline]
@@ -168,7 +175,7 @@ impl Bus {
                 memory: ram,
                 plic,
                 interrupt_status: &mut virtio.interrupt_status,
-                irq: 1,
+                irq: VIRTIO_BLOCK_IRQ,
             };
             transport::drain_queue(virtio_block, &mut ctx, queue, queue_idx)?;
         }
@@ -176,7 +183,7 @@ impl Bus {
         Ok(())
     }
 
-    fn drain_virtio_net(&mut self) -> Result<(), Trap> {
+    fn drain_virtio_net_tx(&mut self) -> Result<(), Trap> {
         let Bus { ram, plic, virtio_net, virtio_net_dev, .. } = self;
 
         while let Some(queue_idx) = virtio_net.take_queue_notify() {
@@ -196,9 +203,47 @@ impl Bus {
                 memory: ram,
                 plic,
                 interrupt_status: &mut virtio_net.interrupt_status,
-                irq: 2,
+                irq: VIRTIO_NET_IRQ,
             };
             transport::drain_queue(virtio_net_dev, &mut ctx, queue, queue_idx)?;
+        }
+
+        Ok(())
+    }
+
+    /// Poll the network backend for inbound frames and deliver any that are
+    /// waiting into driver-provided RX buffers. This is what makes the guest
+    /// "see" packets arriving from the outside world (e.g. over WebRTC).
+    ///
+    /// Runs on every `drain_all_virtio` tick — the driver doesn't kick the RX
+    /// queue, so we have to pull. Interrupts are gated per virtio 1.1 spec
+    /// (NO_INTERRUPT flag + used_event) so a burst of RX frames produces
+    /// at most one IRQ.
+    fn drain_virtio_net_rx(&mut self) -> Result<(), Trap> {
+        let Bus { ram, plic, virtio_net, virtio_net_dev, .. } = self;
+
+        let interrupt_status = &mut virtio_net.interrupt_status;
+        let rx_queue = &mut virtio_net.queues[0];
+
+        let mut ctx = VirtioContext {
+            memory: ram,
+            plic,
+            interrupt_status,
+            irq: VIRTIO_NET_IRQ,
+        };
+
+        let triggered = virtio_net_dev.drain_rx(&mut ctx, rx_queue)?;
+
+        if triggered {
+            // Apply the same interrupt gating as drain_queue — respect the
+            // guest's NO_INTERRUPT flag and used_event hint. Without this,
+            // the RX path would fire an interrupt on every batch even when
+            // the guest is busy-polling the used ring.
+            let new_used_idx = ctx.memory.read16(rx_queue.used_ring - RAM_BASE + 2)?;
+            if transport::should_interrupt(ctx.memory, rx_queue, new_used_idx)? {
+                *ctx.interrupt_status |= 0x1;
+                ctx.plic.trigger_interrupt(VIRTIO_NET_IRQ);
+            }
         }
 
         Ok(())
@@ -423,7 +468,7 @@ impl Bus {
         }
         if (VIRTIO_NET_BASE..VIRTIO_NET_BASE + VIRTIO_SIZE).contains(&addr) {
             self.virtio_net.write32(addr - VIRTIO_NET_BASE, value);
-            self.drain_virtio_net()?;
+            self.drain_virtio_net_tx()?;
             return Ok(());
         }
 

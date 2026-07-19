@@ -12,6 +12,14 @@ pub struct VirtQueue {
     pub used_ring: u64,
 
     pub last_avail_idx: u16,
+
+    /// whether `VIRTIO_RING_F_EVENT_IDX` was negotiated for this device.
+    /// Set by the MMIO layer once `DRIVER_FEATURES` is written by the
+    /// guest. When true, the transport layer reads `used_event` from the
+    /// avail ring to decide whether to fire an interrupt (per virtio 1.1
+    /// 2.7). when false, we always interrupt (subject to the
+    /// NO_INTERRUPT flag).
+    pub event_idx_enabled: bool,
 }
 
 impl Default for VirtQueue {
@@ -23,6 +31,7 @@ impl Default for VirtQueue {
             avail_ring: 0,
             used_ring: 0,
             last_avail_idx: 0,
+            event_idx_enabled: false,
         }
     }
 }
@@ -49,5 +58,29 @@ impl VirtQueue {
         let desc_addr = self.desc_table + (desc_head as u64 * 16);
         let desc = VirtqDesc::read(mem, desc_addr)?;
         Ok(Some((desc_head, desc)))
+    }
+
+    /// check whether the driver has posted any buffers we haven't consumed
+    /// yet — WITHOUT advancing the avail pointer. Used by the net RX path
+    /// to decide whether to poll the backend: if there's nowhere to put a
+    /// received frame, we must NOT call `receive()` (it destructively
+    /// dequeues from the WebRTC queue, so a frame with no destination
+    /// buffer is lost forever).
+    pub fn has_available(&self, mem: &Memory) -> Result<bool, Trap> {
+        const RAM_BASE: u64 = 0x8000_0000;
+        if !self.ready {
+            return Ok(false);
+        }
+        let avail_idx = mem.read16(self.avail_ring - RAM_BASE + 2)?;
+        Ok(avail_idx != self.last_avail_idx)
+    }
+
+    /// undo a `pop_descriptor` by decrementing the avail index. Safe to
+    /// call once after a pop, as long as no other pop has happened in
+    /// between. Used by the net RX path to "put back" a buffer when the
+    /// backend had no frame to fill it with — without this, the buffer
+    /// would be permanently lost to the guest.
+    pub fn unpop(&mut self) {
+        self.last_avail_idx = self.last_avail_idx.wrapping_sub(1);
     }
 }

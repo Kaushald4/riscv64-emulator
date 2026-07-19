@@ -32,6 +32,9 @@ mod wasm_web {
     pub fn run(max_cycles: u64) -> Result<u32, ()> {
         let cpu = unsafe { (*ptr::addr_of_mut!(VM)).as_mut().ok_or(())? };
 
+        // Poll at the START of the batch — picks up any frames the JS side
+        // delivered while we were sleeping (the 4ms timer between batches
+        // is when most `netrx` postMessages arrive).
         cpu.bus.drain_all_virtio().ok();
 
         for i in 0..max_cycles {
@@ -45,6 +48,9 @@ mod wasm_web {
                 }
             }
         }
+
+        
+        cpu.bus.drain_all_virtio().ok();
 
         /*
             return a simple status flag to javaScript:
