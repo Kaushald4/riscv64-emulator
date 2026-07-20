@@ -176,6 +176,7 @@ impl Bus {
                 plic,
                 interrupt_status: &mut virtio.interrupt_status,
                 irq: VIRTIO_BLOCK_IRQ,
+                driver_features: virtio.driver_features,
             };
             transport::drain_queue(virtio_block, &mut ctx, queue, queue_idx)?;
         }
@@ -204,6 +205,7 @@ impl Bus {
                 plic,
                 interrupt_status: &mut virtio_net.interrupt_status,
                 irq: VIRTIO_NET_IRQ,
+                driver_features: virtio_net.driver_features,
             };
             transport::drain_queue(virtio_net_dev, &mut ctx, queue, queue_idx)?;
         }
@@ -230,6 +232,7 @@ impl Bus {
             plic,
             interrupt_status,
             irq: VIRTIO_NET_IRQ,
+            driver_features: virtio_net.driver_features,
         };
 
         let triggered = virtio_net_dev.drain_rx(&mut ctx, rx_queue)?;

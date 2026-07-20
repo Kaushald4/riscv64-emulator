@@ -32,9 +32,6 @@ mod wasm_web {
     pub fn run(max_cycles: u64) -> Result<u32, ()> {
         let cpu = unsafe { (*ptr::addr_of_mut!(VM)).as_mut().ok_or(())? };
 
-        // Poll at the START of the batch — picks up any frames the JS side
-        // delivered while we were sleeping (the 4ms timer between batches
-        // is when most `netrx` postMessages arrive).
         cpu.bus.drain_all_virtio().ok();
 
         for i in 0..max_cycles {
@@ -47,16 +44,21 @@ mod wasm_web {
                     cpu.bus.plic.trigger_interrupt(10);
                 }
             }
+
+            /* in-batch virtio poll every 10k cycles. this serves two 
+                purposes:
+                  1. RX - delivers inbound frames to the guest's TCP stack
+                    without waiting for the batch to end.
+                  2. TX - drains the guest's TX queue so ACKs go out without
+                     waiting for the batch to end.
+            */
+            if i % 10_000 == 0 {
+                cpu.bus.drain_all_virtio().ok();
+            }
         }
 
-        
         cpu.bus.drain_all_virtio().ok();
 
-        /*
-            return a simple status flag to javaScript:
-              0 = CPU is asleep (WFI)
-              1 = CPU is awake and processing
-        */
         if cpu.wfi { Ok(0) } else { Ok(1) }
     }
 
@@ -71,6 +73,23 @@ mod wasm_web {
             if should_interrupt {
                 cpu.bus.plic.trigger_interrupt(10);
             }
+        }
+    }
+
+    /// returns (driver_features, gro_frames_in, gro_segments_out).
+    ///
+    /// driver_features: the feature bits the guest negotiated. Bit 7
+    ///   (VIRTIO_NET_F_GUEST_TSO4 = 0x80) tells us if GRO is active.
+    ///   If 0, the guest kernel doesn't support TSO4 and GRO is bypassed.
+    pub fn net_stats() -> (u64, u64, u64) {
+        let cpu = unsafe { (*ptr::addr_of_mut!(VM)).as_mut() };
+        match cpu {
+            Some(c) => (
+                c.bus.virtio_net.driver_features,
+                c.bus.virtio_net_dev.gro_frames_in,
+                c.bus.virtio_net_dev.gro_segments_out,
+            ),
+            None => (0, 0, 0),
         }
     }
 }
@@ -98,9 +117,7 @@ pub unsafe extern "C" fn glasshart_boot(fw_ptr: *const u8, fw_len: usize, k_ptr:
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glasshart_run(max_cycles: u32) -> i32 {
     match wasm_web::run(max_cycles as u64) {
-        // 1 (i am awake) or 0 (i am asleep)
         Ok(status) => status as i32,
-        // -1 (i am trapped)
         Err(_) => -1,
     }
 }
@@ -118,4 +135,14 @@ pub unsafe extern "C" fn glasshart_uart_read() -> u32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glasshart_uart_write(byte: u32) {
     wasm_web::uart_write(byte as u8);
+}
+
+#[cfg(target_arch = "wasm32")]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn glasshart_net_stats() -> u64 {
+    // packed: (driver_features << 32) | gro_frames_in
+    // gro_segments_out is tracked separately via a second call if needed.
+    let (df, frames_in, segs_out) = wasm_web::net_stats();
+    // pack all three into a u64: bits 0-15 = frames_in, 16-31 = segs_out, 32-63 = driver_features
+    (df << 32) | ((segs_out & 0xffff) << 16) | (frames_in & 0xffff)
 }

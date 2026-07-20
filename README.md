@@ -61,8 +61,8 @@ If you're also learning RISC-V or emulator internals, I'd genuinely love feedbac
 - [X] TLB (Caching)
 - [X] VirtIO block device
 - [X] Boots a minimal Linux (Alpine) rootfs
-- [ ] Add VirtIO - network device
-- [ ] WebAssembly build target - Linux, in a browser tab
+- [X] VirtIO - network device (with GRO for high throughput)
+- [X] WebAssembly build target - Linux, in a browser tab (with WebRTC internet access)
 
 ## Roadmap
 
@@ -78,8 +78,8 @@ I'm building this in deliberate, testable phases rather than jumping straight fo
 | 5     | RV64F/D floating point (pass `rv64uf` / `ud` tests)  |  Done       |
 | 6     | Sv39 MMU — page table walker, TLB                   |  Done       | 
 | 7     | PLIC, VirtIO block device, Alpine rootfs boot       |  Done       |
-| 8     | VirtIO network device                               | Not started |
-| 9     | WASM build, browser boot                            | Not started |
+| 8     | VirtIO network device (with GRO)                    |  Done       |
+| 9     | WASM build, browser boot + WebRTC internet          |  Done       |
 
 I'll keep this table updated as phases land - check the commit history or releases for the details behind each one.
 
