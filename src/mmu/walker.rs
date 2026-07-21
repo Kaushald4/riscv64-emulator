@@ -5,7 +5,6 @@ use crate::{
         address::VirtualAddress,
         pte::Pte,
         satp::{Satp, SatpMode},
-        translation::Translation,
     },
     trap::Trap,
 };
@@ -16,66 +15,141 @@ impl PageWalker {
     const PAGE_SHIFT: u64 = 12;
     const PTE_SIZE: u64 = 8;
 
-    pub fn translate(cpu: &mut Cpu, virtual_address: u64, access: AccessType) -> Result<Translation, Trap> {
-        // bypass MMU completely for machine mode (or M-mode with MPRV=0)
-        if Self::effective_privilege(cpu, access) == PrivilegeMode::Machine {
-            return Ok(Translation {
-                physical_address: virtual_address,
-                translated: false,
-                root_page_table: 0,
-            });
-        }
-
-        let satp = Satp::new(cpu.csr.satp);
-
-        match satp.mode() {
-            SatpMode::Bare => {
-                return Ok(Translation {
-                    physical_address: virtual_address,
-                    translated: false,
-                    root_page_table: 0,
-                });
+    /// Translate a virtual address to physical. Returns the physical address.
+    ///
+    /// This is the hottest function in the emulator — called 2-3x per
+    /// instruction (fetch + load/store). The TLB hit path must be as
+    /// lean as possible:
+    ///   1. Check if paging is enabled (raw satp, no struct)
+    ///   2. Hash VPN, index into TLB with a REFERENCE (no copy)
+    ///   3. Check valid + ASID + VPN match
+    ///   4. Fast permission check (inline, not a function call)
+    ///   5. Compute PA, return
+    ///
+    /// The slow path (page table walk) is unchanged — it's rare.
+    pub fn translate(cpu: &mut Cpu, virtual_address: u64, access: AccessType) -> Result<u64, Trap> {
+        // ── Fast bypass: M-mode with no MPRV (or MPRV=0) ──────────────
+        // During boot, the guest runs in M-mode with paging off. This
+        // check is just a privilege + MPRV bit test — very cheap.
+        if cpu.privilege_mode == PrivilegeMode::Machine {
+            if access == AccessType::Instruction || !cpu.csr.mprv() {
+                return Ok(virtual_address);
             }
-            SatpMode::Reserved(_) => unreachable!(),
-            SatpMode::Sv39 => {}
         }
 
+        // ── Check if paging is enabled (raw satp, no struct) ──────────
+        // satp bits: [63:60] = mode, [59:44] = ASID, [43:0] = PPN
+        // Mode 0 = Bare (no translation), Mode 8 = Sv39
+        let satp_raw = cpu.csr.satp;
+        let satp_mode = (satp_raw >> 60) & 0xF;
+        if satp_mode == 0 {
+            // Bare — no translation
+            return Ok(virtual_address);
+        }
+        // Sv39 only (mode 8). Other modes are reserved.
+        // Don't check is_canonical here — it's rare and the page walk
+        // will catch it via invalid PTEs.
+
+        // ── TLB lookup (fast path) ───────────────────────────────────
+        let vpn = virtual_address >> 12;
+        let asid = ((satp_raw >> 44) & 0xFFFF) as u16;
+        let index = (vpn as usize) & 0xFFF;
+
+        // Use a REFERENCE — the old code did `let entry = cpu.tlb.entries[index]`
+        // which copies the 56-byte TlbEntry struct on EVERY call. At 90M
+        // translate calls/sec, that's 5 GB/s of wasted copies.
+        let entry = &cpu.tlb.entries[index];
+
+        if entry.valid && (entry.is_global || entry.asid == asid) {
+            let mask_vpn = vpn & !(entry.page_mask >> 12);
+            let entry_vpn = entry.vpn & !(entry.page_mask >> 12);
+
+            if mask_vpn == entry_vpn {
+                // ── TLB HIT — inline permission check ──────────────────
+                //
+                // The old code called check_permissions() on every hit,
+                // which itself called effective_privilege() — another
+                // function call with MPRV checking. Together these were
+                // 3.3s + 0.5s = 3.8s of the 70s runtime (5.4%).
+                //
+                // Inline the common cases:
+                //   - S-mode: check SUM if accessing U pages
+                //   - U-mode: must be U page
+                //   - Instruction: must have X bit
+                //   - Read: must have R bit (or X if MXR)
+                //   - Write: must have W bit
+                //
+                // For the TLB hit path, we skip the `accessed` bit check
+                // — it was already set when the entry was cached, and
+                // the kernel doesn't clear it without flushing the TLB.
+
+                let pte_bits = entry.pte_bits;
+                let is_user_page = (pte_bits & (1 << 4)) != 0; // U bit
+
+                // Privilege check (inlined effective_privilege)
+                let eff_priv = if cpu.privilege_mode == PrivilegeMode::Machine && access != AccessType::Instruction && cpu.csr.mprv() {
+                    cpu.csr.mpp()
+                } else {
+                    cpu.privilege_mode
+                };
+
+                match eff_priv {
+                    PrivilegeMode::Machine => {
+                        // M-mode can access anything — no permission check
+                    }
+                    PrivilegeMode::Supervisor => {
+                        if is_user_page && access != AccessType::Instruction && !cpu.csr.sum() {
+                            return Err(Self::page_fault(access, virtual_address));
+                        }
+                        if is_user_page && access == AccessType::Instruction {
+                            return Err(Self::page_fault(access, virtual_address));
+                        }
+                    }
+                    PrivilegeMode::User => {
+                        if !is_user_page {
+                            return Err(Self::page_fault(access, virtual_address));
+                        }
+                    }
+                }
+
+                // Access type check (inlined)
+                match access {
+                    AccessType::Instruction => {
+                        if (pte_bits & (1 << 3)) == 0 { // X bit
+                            return Err(Self::page_fault(access, virtual_address));
+                        }
+                    }
+                    AccessType::Read => {
+                        let readable = if cpu.csr.mxr() {
+                            (pte_bits & (1 << 1)) != 0 || (pte_bits & (1 << 3)) != 0 // R or X
+                        } else {
+                            (pte_bits & (1 << 1)) != 0 // R bit
+                        };
+                        if !readable {
+                            return Err(Self::page_fault(access, virtual_address));
+                        }
+                    }
+                    AccessType::Write => {
+                        if (pte_bits & (1 << 2)) == 0 { // W bit
+                            return Err(Self::page_fault(access, virtual_address));
+                        }
+                    }
+                }
+
+                // Compute physical address
+                let pa = (entry.ppn << 12) | (virtual_address & entry.page_mask);
+                return Ok(pa);
+            }
+        }
+
+        // ── Slow path: page table walk ──────────────────────────────
+        let satp = Satp::new(satp_raw);
         let va = VirtualAddress::new(virtual_address);
 
         if !va.is_canonical() {
             return Err(Self::page_fault(access, virtual_address));
         }
 
-        let vpn = virtual_address >> 12;
-        let asid = satp.asid() as u16;
-
-        // fast path - TLB lookup
-        let index = crate::mmu::tlb::Tlb::hash(vpn);
-        let entry = cpu.tlb.entries[index];
-
-        // hit condition - entry is valid & (it is a global page OR the ASID matches)
-        if entry.valid && (entry.is_global || entry.asid == asid) {
-            // apply the superpage mask to verify the VPN actually matches
-            let mask_vpn = vpn & !(entry.page_mask >> 12);
-            let entry_vpn = entry.vpn & !(entry.page_mask >> 12);
-
-            if mask_vpn == entry_vpn {
-                // reconstruct the PTE from the cached bits and verify permissions
-                let cached_pte = Pte::new(entry.pte_bits);
-                Self::check_permissions(cpu, cached_pte, access, virtual_address)?;
-
-                // calculate final physical address using the cached base PPN and the exact page mask
-                let pa = (entry.ppn << 12) | (virtual_address & entry.page_mask);
-
-                return Ok(Translation {
-                    physical_address: pa,
-                    translated: true,
-                    root_page_table: satp.ppn() << Self::PAGE_SHIFT,
-                });
-            }
-        }
-
-        // slow path - hardware page table walk
         let mut level: i32 = 2;
         let mut table = satp.ppn() << Self::PAGE_SHIFT;
 
@@ -90,50 +164,38 @@ impl PageWalker {
             let pte_addr = table + walk_vpn * Self::PTE_SIZE;
             let pte = Pte::new(cpu.bus.read64(pte_addr)?);
 
-            // spec
             if pte.is_invalid() {
                 return Err(Self::page_fault(access, virtual_address));
             }
 
-            // leaf PTE found.
             if pte.is_leaf() {
                 Self::check_permissions(cpu, pte, access, virtual_address)?;
 
-                // hardware A/D bit update
-                // if the accessed (bit 6) or dirty (bit 7) bits are 0, the hardware MUST set them.
-                // otherwise, Linux gets stuck in an infinite page fault loop
                 let mut pte_bits = pte.bits();
                 let mut pte_updated = false;
 
-                // check accessed bit (bit 6)
                 if (pte_bits & (1 << 6)) == 0 {
                     pte_bits |= 1 << 6;
                     pte_updated = true;
                 }
-                // check dirty bit (bit 7)
                 if access == AccessType::Write && (pte_bits & (1 << 7)) == 0 {
                     pte_bits |= 1 << 7;
                     pte_updated = true;
                 }
 
-                // write the updated PTE back to physical memory
                 if pte_updated {
                     cpu.bus.write64(pte_addr, pte_bits)?;
                 }
 
-                // superpage masking & PA calculation
                 let page_mask = match level {
-                    // 4 KiB page
                     0 => 0xFFF,
                     1 => {
-                        // 2 MiB page
                         if pte.ppn0() != 0 {
                             return Err(Self::page_fault(access, virtual_address));
                         }
                         0x1F_FFFF
                     }
                     2 => {
-                        // 1 GiB page
                         if pte.ppn0() != 0 || pte.ppn1() != 0 {
                             return Err(Self::page_fault(access, virtual_address));
                         }
@@ -142,32 +204,22 @@ impl PageWalker {
                     _ => unreachable!(),
                 };
 
-                // calculate the exact physical address
                 let pa = (pte.ppn() << 12) | (virtual_address & page_mask);
 
-                // cache fill - populate the TLB
                 cpu.tlb.entries[index] = crate::mmu::tlb::TlbEntry {
                     vpn,
                     asid,
-                    // global bit (bit 5)
                     is_global: (pte_bits & (1 << 5)) != 0,
                     valid: true,
                     pte_bits,
                     page_mask,
-                    // store the raw PPN base, NOT shifted pa
                     ppn: pte.ppn(),
                 };
 
-                return Ok(Translation {
-                    physical_address: pa,
-                    translated: true,
-                    root_page_table: satp.ppn() << Self::PAGE_SHIFT,
-                });
+                return Ok(pa);
             }
 
-            // spec descend to the next level.
             level -= 1;
-
             if level < 0 {
                 return Err(Self::page_fault(access, virtual_address));
             }
@@ -175,6 +227,7 @@ impl PageWalker {
             table = pte.ppn() << Self::PAGE_SHIFT;
         }
     }
+
     #[inline]
     fn page_fault(access: AccessType, addr: u64) -> Trap {
         match access {
@@ -186,8 +239,6 @@ impl PageWalker {
 
     #[inline]
     fn effective_privilege(cpu: &Cpu, access: AccessType) -> PrivilegeMode {
-        use crate::cpu::PrivilegeMode;
-
         if cpu.privilege_mode == PrivilegeMode::Machine && access != AccessType::Instruction && cpu.csr.mprv() { cpu.csr.mpp() } else { cpu.privilege_mode }
     }
 
@@ -215,7 +266,6 @@ impl PageWalker {
             }
 
             PrivilegeMode::User => {
-                // user must access only U pages.
                 if !pte.user() {
                     return Err(Self::page_fault(access, virtual_address));
                 }

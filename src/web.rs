@@ -24,40 +24,56 @@ mod wasm_web {
         cpu.regs.write(Reg::new(11), DTB_ADDR);
 
         unsafe {
-            // write safely via a raw pointer
             *ptr::addr_of_mut!(VM) = Some(cpu);
         }
     }
 
-    pub fn run(max_cycles: u64) -> Result<u32, ()> {
+    /// Run up to `max_cycles` instructions. `elapsed_ms` is the wall-clock
+    /// time since the last call, used to advance mtime (10MHz CLINT =
+    /// 10,000 ticks/ms). This keeps the guest timer at real-time rate
+    /// regardless of emulator speed.
+    pub fn run(max_cycles: u64, elapsed_ms: f64) -> Result<u32, ()> {
         let cpu = unsafe { (*ptr::addr_of_mut!(VM)).as_mut().ok_or(())? };
 
         cpu.bus.drain_all_virtio().ok();
 
-        for i in 0..max_cycles {
-            if cpu.step().is_err() {
-                return Err(());
+        if elapsed_ms > 0.0 {
+            let elapsed_ticks = (elapsed_ms * 10_000.0) as u64;
+            cpu.bus.clint.mtime = cpu.bus.clint.mtime.wrapping_add(elapsed_ticks);
+            cpu.csr.time = cpu.bus.clint.mtime;
+            if cpu.bus.clint.mtime >= cpu.bus.clint.mtimecmp {
+                cpu.csr.mip |= 1 << 7;
             }
-
-            if i % 1_000 == 0 {
-                if cpu.bus.uart.is_interrupting() {
-                    cpu.bus.plic.trigger_interrupt(10);
-                }
-            }
-
-            /* in-batch virtio poll every 10k cycles. this serves two 
-                purposes:
-                  1. RX - delivers inbound frames to the guest's TCP stack
-                    without waiting for the batch to end.
-                  2. TX - drains the guest's TX queue so ACKs go out without
-                     waiting for the batch to end.
-            */
-            if i % 10_000 == 0 {
-                cpu.bus.drain_all_virtio().ok();
+            if cpu.bus.clint.mtime >= cpu.csr.stimecmp {
+                cpu.csr.mip |= 1 << 5;
             }
         }
 
-        cpu.bus.drain_all_virtio().ok();
+        // Run in batches using run_batch(). Between batches, check UART
+        // and drain virtio. Return early (status=2) when UART output is
+        // pending so the JS scheduler can drain it to the terminal —
+        // this keeps typing latency low (<3ms) even with large batches.
+        let mut remaining = max_cycles;
+        while remaining > 0 {
+            let batch = remaining.min(50_000);
+            let executed = cpu.run_batch(batch);
+            remaining = remaining.saturating_sub(executed);
+
+            if cpu.bus.uart.is_interrupting() {
+                cpu.bus.plic.trigger_interrupt(10);
+            }
+            cpu.bus.drain_all_virtio().ok();
+
+            // Early return when UART has output pending — lets the JS
+            // side drain it to the terminal promptly for low typing latency.
+            if cpu.bus.uart.has_tx_output() {
+                return Ok(2);
+            }
+
+            if cpu.wfi {
+                break;
+            }
+        }
 
         if cpu.wfi { Ok(0) } else { Ok(1) }
     }
@@ -76,11 +92,6 @@ mod wasm_web {
         }
     }
 
-    /// returns (driver_features, gro_frames_in, gro_segments_out).
-    ///
-    /// driver_features: the feature bits the guest negotiated. Bit 7
-    ///   (VIRTIO_NET_F_GUEST_TSO4 = 0x80) tells us if GRO is active.
-    ///   If 0, the guest kernel doesn't support TSO4 and GRO is bypassed.
     pub fn net_stats() -> (u64, u64, u64) {
         let cpu = unsafe { (*ptr::addr_of_mut!(VM)).as_mut() };
         match cpu {
@@ -115,8 +126,8 @@ pub unsafe extern "C" fn glasshart_boot(fw_ptr: *const u8, fw_len: usize, k_ptr:
 
 #[cfg(target_arch = "wasm32")]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn glasshart_run(max_cycles: u32) -> i32 {
-    match wasm_web::run(max_cycles as u64) {
+pub unsafe extern "C" fn glasshart_run(max_cycles: u32, elapsed_ms: f64) -> i32 {
+    match wasm_web::run(max_cycles as u64, elapsed_ms) {
         Ok(status) => status as i32,
         Err(_) => -1,
     }
@@ -140,9 +151,6 @@ pub unsafe extern "C" fn glasshart_uart_write(byte: u32) {
 #[cfg(target_arch = "wasm32")]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn glasshart_net_stats() -> u64 {
-    // packed: (driver_features << 32) | gro_frames_in
-    // gro_segments_out is tracked separately via a second call if needed.
     let (df, frames_in, segs_out) = wasm_web::net_stats();
-    // pack all three into a u64: bits 0-15 = frames_in, 16-31 = segs_out, 32-63 = driver_features
     (df << 32) | ((segs_out & 0xffff) << 16) | (frames_in & 0xffff)
 }

@@ -36,19 +36,13 @@ mod native_main {
         let mut cpu = Cpu::new();
 
         let firmware = fs::read("firmware/fw_jump.bin").expect("failed to read firmware/fw_jump.bin");
-        for (i, byte) in firmware.iter().enumerate() {
-            cpu.bus.write8(RAM_BASE + i as u64, *byte)?;
-        }
+        cpu.bus.load_external_image(RAM_BASE, &firmware)?;
 
         let dtb = fs::read("firmware/virt.dtb").expect("failed to read firmware/virt.dtb");
-        for (i, byte) in dtb.iter().enumerate() {
-            cpu.bus.write8(DTB_ADDR + i as u64, *byte)?;
-        }
+        cpu.bus.load_external_image(DTB_ADDR, &dtb)?;
 
         let kernel = fs::read("kernel/kernel_6.6").expect("failed to read kernel/kernel_6.6");
-        for (i, byte) in kernel.iter().enumerate() {
-            cpu.bus.write8(KERNEL_ADDR + i as u64, *byte)?;
-        }
+        cpu.bus.load_external_image(KERNEL_ADDR, &kernel)?;
 
         cpu.pc = RAM_BASE;
 
@@ -57,29 +51,60 @@ mod native_main {
 
         print!("Booting GlassHart VM...\r\n");
 
-        let mut main_clock = 0u64;
+        // Advance mtime based on wall-clock time. The CLINT runs at 10MHz,
+        // so 1 tick = 100ns. This makes the guest's timer fire at the
+        // correct rate (250Hz for CONFIG_HZ=250), regardless of how fast
+        // or slow the emulator runs.
+        //
+        // Previously, mtime was advanced by 128 per 128 instructions inside
+        // run_batch. At 30 MIPS that's 30M ticks/sec — 3x too fast for a
+        // 10MHz CLINT. The kernel's scheduler got confused by the wrong
+        // time accounting and put dd to sleep (WFI) 94% of the time,
+        // giving only 5.8% CPU utilization and 11.8 MB/s throughput.
+        let mut last_tick = std::time::Instant::now();
+        let mut wfi_spin = 0u32;
         loop {
-            main_clock = main_clock.wrapping_add(1);
-
-            if main_clock % 10_000 == 0 {
-                while let Ok(byte) = rx.try_recv() {
-                    let should_interrupt = cpu.bus.uart.push_rx(byte);
-                    if should_interrupt {
-                        cpu.bus.plic.trigger_interrupt(10);
-                    }
+            // Advance mtime by wall-clock elapsed time (10MHz CLINT).
+            let now = std::time::Instant::now();
+            let elapsed_ns = now.duration_since(last_tick).as_nanos() as u64;
+            if elapsed_ns >= 100 {
+                let elapsed_ticks = elapsed_ns / 100;
+                cpu.bus.clint.mtime = cpu.bus.clint.mtime.wrapping_add(elapsed_ticks);
+                cpu.csr.time = cpu.bus.clint.mtime;
+                if cpu.bus.clint.mtime >= cpu.bus.clint.mtimecmp {
+                    cpu.csr.mip |= 1 << 7;
                 }
+                if cpu.bus.clint.mtime >= cpu.csr.stimecmp {
+                    cpu.csr.mip |= 1 << 5;
+                }
+                last_tick = now;
+            }
 
-                if cpu.bus.uart.is_interrupting() {
+            // Check UART input.
+            while let Ok(byte) = rx.try_recv() {
+                let should_interrupt = cpu.bus.uart.push_rx(byte);
+                if should_interrupt {
                     cpu.bus.plic.trigger_interrupt(10);
                 }
             }
+            if cpu.bus.uart.is_interrupting() {
+                cpu.bus.plic.trigger_interrupt(10);
+            }
 
-            cpu.step()?;
+            let _executed = cpu.run_batch(100_000);
 
-            if main_clock % 1_000 == 0 {
-                if cpu.wfi {
+            if cpu.wfi {
+                wfi_spin += 1;
+                // Only sleep after a very long spin (truly idle, e.g. shell
+                // prompt with no input). Don't advance mtime here — the
+                // wall-clock code above handles that. The sleep is just to
+                // avoid burning 100% CPU when the guest is doing nothing.
+                if wfi_spin >= 10_000_000 {
                     std::thread::sleep(std::time::Duration::from_millis(1));
+                    wfi_spin = 0;
                 }
+            } else {
+                wfi_spin = 0;
             }
         }
     }

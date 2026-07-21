@@ -51,6 +51,11 @@ pub fn mret(cpu: &mut Cpu) -> ExecResult {
     // MPP <- User
     cpu.csr.mstatus &= !MSTATUS_MPP_MASK;
 
+    // Invalidate fetch cache — privilege/PC change
+    cpu.fetch_page_valid = false;
+    cpu.data_read_valid = false;
+    cpu.data_write_valid = false;
+
     Ok(ExecFlow::Jump(cpu.csr.mepc))
 }
 
@@ -72,6 +77,11 @@ pub fn sret(cpu: &mut Cpu) -> ExecResult {
     // SPP <- User
     cpu.csr.mstatus &= !(1 << 8);
 
+    // Invalidate fetch cache — privilege/PC change
+    cpu.fetch_page_valid = false;
+    cpu.data_read_valid = false;
+    cpu.data_write_valid = false;
+
     Ok(ExecFlow::Jump(cpu.csr.sepc))
 }
 
@@ -80,22 +90,23 @@ pub fn sfence_vma(cpu: &mut Cpu, rs1: Reg, rs2: Reg) -> ExecResult {
     let asid = cpu.regs.read(rs2) as u16;
 
     if vaddr == 0 && asid == 0 {
-        // SFENCE.VMA x0, x0
         cpu.tlb.flush_all();
     } else if vaddr == 0 && asid != 0 {
-        // SFENCE.VMA x0, rs2
         cpu.tlb.flush_asid(asid);
     } else if vaddr != 0 && asid == 0 {
-        // SFENCE.VMA rs1, x0
         cpu.tlb.flush_page(vaddr, 0, true);
     } else {
-        // SFENCE.VMA rs1, rs2
         cpu.tlb.flush_page(vaddr, asid, false);
     }
 
     for entry in cpu.decode_cache.iter_mut() {
         entry.valid = false;
     }
+
+    // Invalidate fetch cache
+    cpu.fetch_page_valid = false;
+    cpu.data_read_valid = false;
+    cpu.data_write_valid = false;
 
     Ok(ExecFlow::Next)
 }

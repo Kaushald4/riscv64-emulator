@@ -55,6 +55,11 @@ impl Uart {
         self.tx_queue.pop_front()
     }
 
+    /// Check if there are pending TX bytes for the terminal.
+    pub fn has_tx_output(&self) -> bool {
+        !self.tx_queue.is_empty()
+    }
+
     #[inline]
     fn offset(addr: u64) -> Result<u64, Trap> {
         if !(UART_BASE..UART_BASE + UART_SIZE).contains(&addr) {

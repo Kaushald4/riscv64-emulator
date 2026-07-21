@@ -1,3 +1,4 @@
 /target
 kernel/base.img
 /examples/*
+/packages/

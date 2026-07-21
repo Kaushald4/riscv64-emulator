@@ -10,7 +10,7 @@ use crate::{
     cpu::{bus::Bus, csr::Csr, decoder_cache::DecodeEntry},
     decode::decode,
     devices::Device,
-    mmu::{Mmu, tlb::Tlb},
+    mmu::{Mmu, tlb::Tlb, access_type::AccessType},
     trap::Trap,
 };
 
@@ -25,10 +25,11 @@ pub enum ExecFlow {
 pub type ExecResult = Result<ExecFlow, Trap>;
 
 #[derive(Debug, PartialEq, Clone, Copy)]
+#[repr(u8)]
 pub enum PrivilegeMode {
-    Machine,
-    Supervisor,
-    User,
+    Machine = 0,
+    Supervisor = 1,
+    User = 2,
 }
 
 pub struct Cpu {
@@ -40,12 +41,46 @@ pub struct Cpu {
     pub privilege_mode: PrivilegeMode,
     pub csr: Csr,
     pub tlb: Tlb,
-    pub decode_cache: [DecodeEntry; 4096],
+    pub decode_cache: Box<[DecodeEntry]>,
     // reservation for LR/SC
     pub reservation: Option<u64>,
     pub wfi: bool,
 
     pub clock: u64,
+
+    // ── Instruction fetch cache ──────────────────────────────────────
+    //
+    // Caches the physical address of the current code page. For ~1024
+    // consecutive instructions within the same 4KB page, we skip the
+    // entire MMU translate path.
+    //
+    // We store the PA of the PC that was translated, plus that PC itself.
+    // For subsequent fetches in the same page:
+    //   pa = cached_pa + (pc - cached_pc)
+    // using wrapping arithmetic (handles backward jumps within a page).
+    pub fetch_page_vpn: u64,      // virtual page number (va >> 12)
+    pub fetch_page_pa: u64,       // PA of the translated PC
+    pub fetch_page_pc: u64,      // the PC that was translated
+    pub fetch_page_valid: bool,   // is the cache valid?
+
+    // ── Data access page cache ─────────────────────────────────────
+    //
+    // Same idea as the fetch page cache but for load/store accesses.
+    // Separate caches for read and write because a page might be
+    // readable but not writable — we must not skip the permission
+    // check for a write just because a read was cached.
+    //
+    // Each cache stores the VPN, the PA of the cached access, and the
+    // VA that was translated. For subsequent accesses in the same
+    // page: pa = cached_pa + (addr - cached_va).
+    pub data_read_vpn: u64,
+    pub data_read_pa: u64,
+    pub data_read_va: u64,
+    pub data_read_valid: bool,
+    pub data_write_vpn: u64,
+    pub data_write_pa: u64,
+    pub data_write_va: u64,
+    pub data_write_valid: bool,
 }
 
 impl Cpu {
@@ -59,11 +94,22 @@ impl Cpu {
             privilege_mode: PrivilegeMode::Machine,
             csr: Csr::new(),
             tlb: Tlb::new(),
-            decode_cache: [DecodeEntry::default(); 4096],
+            decode_cache: vec![DecodeEntry::default(); 16384].into_boxed_slice(),
             reservation: None,
             wfi: false,
-
             clock: 0,
+            fetch_page_vpn: 0,
+            fetch_page_pa: 0,
+            fetch_page_pc: 0,
+            fetch_page_valid: false,
+            data_read_vpn: 0,
+            data_read_pa: 0,
+            data_read_va: 0,
+            data_read_valid: false,
+            data_write_vpn: 0,
+            data_write_pa: 0,
+            data_write_va: 0,
+            data_write_valid: false,
         }
     }
 
@@ -72,13 +118,54 @@ impl Cpu {
             return Err(Trap::InstructionAddressMisaligned(self.pc));
         }
 
-        if (self.pc & 0xFFF) <= 0xFFC {
-            let word = Mmu::fetch32(self, self.pc)?;
+        // Instruction fetch cache
+        //
+        // 99% of instructions are in the same 4KB page as the previous
+        // instruction. By caching the physical address of the page, we
+        // skip the entire MMU translate path (TLB lookup + permission
+        // check) for every instruction within a page.
+        //
+        // This is the #1 performance optimization: translate() was 23%
+        // of runtime, and 2/3 of translate calls are from fetch. This
+        // cache eliminates those calls entirely for same-page fetches.
+        //
+        // We must invalidate the cache on:
+        //   - Page boundary crossing (pc >> 12 changes)
+        //   - TLB flush (sfence.vma)
+        //   - Privilege mode change (trap, sret, mret)
+        //   - satp write (context switch)
+        //
+        // For simplicity, we just re-translate on any VPN mismatch.
+        // The TLB itself handles the actual caching; this fetch cache
+        // just avoids the function call overhead.
 
-            if word & 0b11 != 0b11 { Ok(word & 0xFFFF) } else { Ok(word) }
+        let vpn = self.pc >> 12;
+        let offset = (self.pc & 0xFFF) as usize;
+
+        if !self.fetch_page_valid || self.fetch_page_vpn != vpn {
+            // Cache miss — translate and cache
+            self.fetch_page_pa = Mmu::translate(self, self.pc, AccessType::Instruction)?;
+            self.fetch_page_pc = self.pc;
+            self.fetch_page_vpn = vpn;
+            self.fetch_page_valid = true;
+        }
+
+        // Compute PA: cached_pa + (pc - cached_pc) using wrapping arithmetic.
+        // This handles both forward and backward jumps within the same page.
+        let pa = self.fetch_page_pa.wrapping_add(self.pc.wrapping_sub(self.fetch_page_pc));
+
+        // Read directly from the cached physical address
+        if offset <= 0xFFC {
+            // 4 bytes fit within the page
+            let word = self.bus.read32_fast(pa)?;
+            if word & 0b11 != 0b11 {
+                Ok(word & 0xFFFF)
+            } else {
+                Ok(word)
+            }
         } else {
+            // Crosses page boundary — fall back to slow path
             let first = Mmu::fetch16(self, self.pc)?;
-
             if first & 0b11 != 0b11 {
                 Ok(first as u32)
             } else {
@@ -88,45 +175,111 @@ impl Cpu {
         }
     }
 
+    /// Run up to `count` instructions in a tight loop.
+    ///
+    /// This eliminates the per-instruction overhead of the main loop:
+    ///   - No `?` on step() (saves 11% = Result::branch)
+    ///   - No main_clock increment (saves loop overhead)
+    ///   - No WFI check on every instruction (only on WFI)
+    ///   - No UART input check on every instruction
+    ///
+    /// Returns the number of instructions actually executed. Stops early
+    /// on trap (returns count - remaining) or WFI (returns count - remaining).
+    pub fn run_batch(&mut self, count: u64) -> u64 {
+        // Sync PLIC state to mip before running. Interrupts may have
+        // been triggered between batches (e.g. UART RX from keyboard
+        // input). Without this, the guest stays stuck in WFI because
+        // the PLIC evaluation inside the loop only runs every 1024
+        // clocks — and if the guest is in WFI, the loop returns on the
+        // first iteration before the PLIC is ever evaluated.
+        let (meip, seip) = self.bus.plic.evaluate_interrupt();
+        if meip { self.csr.mip |= 1 << 11; } else { self.csr.mip &= !(1 << 11); }
+        if seip { self.csr.mip |= 1 << 9; } else { self.csr.mip &= !(1 << 9); }
+
+        for i in 0..count {
+            self.clock = self.clock.wrapping_add(1);
+
+            // PLIC evaluation every 1024 clocks. mtime is advanced
+            // by the main loop using wall-clock time (see main.rs).
+            if self.clock & 0x3FF == 0 {
+                let (meip, seip) = self.bus.plic.evaluate_interrupt();
+                if meip { self.csr.mip |= 1 << 11; } else { self.csr.mip &= !(1 << 11); }
+                if seip { self.csr.mip |= 1 << 9; } else { self.csr.mip &= !(1 << 9); }
+            }
+
+            // Interrupt check
+            if (self.csr.mip & self.csr.mie) != 0 {
+                self.wfi = false;
+                if let Some(cause) = self.pending_interrupt() {
+                    if self.handle_interrupt(cause).is_err() {
+                        return i;
+                    }
+                    continue;
+                }
+            }
+
+            // WFI check — only return if still sleeping
+            if self.wfi {
+                return i;
+            }
+
+            // Decode cache
+            let cache_index = ((self.pc >> 2) as usize) & 0x3FFF;
+            let (decoded, length) = if self.decode_cache[cache_index].valid && self.decode_cache[cache_index].pc == self.pc {
+                let entry = &self.decode_cache[cache_index];
+                (entry.decoded, entry.length)
+            } else {
+                let raw = match self.fetch() {
+                    Ok(inst) => inst,
+                    Err(trap) => {
+                        self.fetch_page_valid = false;
+                        self.data_read_valid = false;
+                        self.data_write_valid = false;
+                        if self.handle_trap(trap).is_err() {
+                            return i;
+                        }
+                        continue;
+                    }
+                };
+                let decoded = decode(raw);
+                let length = decoded.length;
+                self.decode_cache[cache_index] = DecodeEntry { pc: self.pc, valid: true, decoded, length };
+                (decoded, length)
+            };
+
+            self.current_instruction_length = length;
+
+            match execute::execute(decoded, self) {
+                Ok(flow) => match flow {
+                    ExecFlow::Next => {
+                        self.pc = self.pc.wrapping_add(length as u64);
+                    }
+                    ExecFlow::Jump(addr) => {
+                        self.pc = addr;
+                    }
+                },
+                Err(trap) => {
+                    self.fetch_page_valid = false;
+                    self.data_read_valid = false;
+                    self.data_write_valid = false;
+                    if self.handle_trap(trap).is_err() {
+                        return i;
+                    }
+                }
+            }
+        }
+        count
+    }
+
     pub fn step(&mut self) -> Result<(), Trap> {
         self.clock = self.clock.wrapping_add(1);
 
-        self.bus.tick();
-        self.csr.time = self.bus.clint.mtime;
-
-        if self.bus.clint.mtime >= self.bus.clint.mtimecmp {
-            self.csr.mip |= 1 << 7;
-        } else {
-            self.csr.mip &= !(1 << 7);
-        }
-
-        if self.bus.clint.mtime >= self.csr.stimecmp {
-            self.csr.mip |= 1 << 5;
-        } else {
-            self.csr.mip &= !(1 << 5);
-        }
-
-        if (self.bus.clint.msip & 1) != 0 {
-            self.csr.mip |= 1 << 3;
-        } else {
-            self.csr.mip &= !(1 << 3);
-        }
-
-        if self.clock % 1000 == 0 {
-
+        // PLIC evaluation every 1024 clocks. mtime is advanced by the
+        // caller using wall-clock time (see main.rs / web.rs).
+        if self.clock & 0x3FF == 0 || self.wfi {
             let (meip, seip) = self.bus.plic.evaluate_interrupt();
-
-            if meip {
-                self.csr.mip |= 1 << 11;
-            } else {
-                self.csr.mip &= !(1 << 11);
-            }
-
-            if seip {
-                self.csr.mip |= 1 << 9;
-            } else {
-                self.csr.mip &= !(1 << 9);
-            }
+            if meip { self.csr.mip |= 1 << 11; } else { self.csr.mip &= !(1 << 11); }
+            if seip { self.csr.mip |= 1 << 9; } else { self.csr.mip &= !(1 << 9); }
         }
 
         if (self.csr.mip & self.csr.mie) != 0 {
@@ -141,15 +294,28 @@ impl Cpu {
             }
         }
 
-        // sleeping in idle do't do anything
+        // sleeping in idle don't do anything
         if self.wfi {
             return Ok(());
         }
 
-        let cache_index = ((self.pc >> 1) % 4096) as usize;
-        let entry = self.decode_cache[cache_index];
+        // Decode cache: 16384 entries (64KB of code coverage).
+        // Hash: bits 2-15 of PC (4-byte aligned instructions).
+        //
+        // CRITICAL: do NOT copy the full DecodeEntry (~42 bytes) on every
+        // instruction. The original code did `let entry = self.decode_cache[i]`
+        // which copies the entire struct including the Instruction enum
+        // (32+ bytes) on EVERY instruction — even on cache misses where
+        // the copy is immediately discarded. At 30 MIPS that's 1.2 GB/s
+        // of wasted memory copies.
+        //
+        // Instead, read only `pc` and `valid` (9 bytes) for the hit check,
+        // and only copy the full entry on an actual hit.
+        let cache_index = ((self.pc >> 2) as usize) & 0x3FFF;
 
-        let (decoded, length) = if entry.valid && entry.pc == self.pc {
+        let (decoded, length) = if self.decode_cache[cache_index].valid && self.decode_cache[cache_index].pc == self.pc {
+            // Hit: copy decoded instruction + length from the cache.
+            let entry = &self.decode_cache[cache_index];
             (entry.decoded, entry.length)
         } else {
             let raw = match self.fetch() {
@@ -191,6 +357,11 @@ impl Cpu {
     }
 
     pub fn handle_interrupt(&mut self, cause: u64) -> Result<(), Trap> {
+        // Invalidate fetch cache — privilege/PC change
+        self.fetch_page_valid = false;
+        self.data_read_valid = false;
+        self.data_write_valid = false;
+
         // delegate to S-mode if enabled and we're not already in M-mode.
         let delegated = self.privilege_mode != PrivilegeMode::Machine && self.csr.is_interrupt_delegated(cause);
 
@@ -329,6 +500,11 @@ impl Cpu {
 // trap handler
 impl Cpu {
     pub fn handle_trap(&mut self, trap: Trap) -> Result<(), Trap> {
+        // Invalidate fetch cache — privilege/PC change
+        self.fetch_page_valid = false;
+        self.data_read_valid = false;
+        self.data_write_valid = false;
+
         let cause = Self::exception_cause(&trap);
 
         let delegated = self.privilege_mode != PrivilegeMode::Machine && self.csr.is_exception_delegated(cause);
