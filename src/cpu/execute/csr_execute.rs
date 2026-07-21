@@ -16,9 +16,7 @@ pub fn csrrw(cpu: &mut Cpu, rd: Reg, rs1: Reg, csr: u16) -> ExecResult {
     cpu.csr.write(csr, cpu.regs.read(rs1))?;
 
     // Invalidate fetch cache — satp, mstatus, etc. can change translation
-    cpu.fetch_page_valid = false;
-    cpu.data_read_valid = false;
-    cpu.data_write_valid = false;
+    cpu.invalidate_caches();
 
     cpu.regs.write(rd, old);
 
@@ -36,9 +34,7 @@ pub fn csrrs(cpu: &mut Cpu, rd: Reg, rs1: Reg, csr: u16) -> ExecResult {
 
     if !rs1.is_zero() {
         cpu.csr.write(csr, old | cpu.regs.read(rs1))?;
-    cpu.fetch_page_valid = false;
-    cpu.data_read_valid = false;
-    cpu.data_write_valid = false;
+    cpu.invalidate_caches();
     }
 
     Ok(ExecFlow::Next)
@@ -54,9 +50,7 @@ pub fn csrrc(cpu: &mut Cpu, rd: Reg, rs1: Reg, csr: u16) -> ExecResult {
 
     if !rs1.is_zero() {
         cpu.csr.write(csr, old & !cpu.regs.read(rs1))?;
-    cpu.fetch_page_valid = false;
-    cpu.data_read_valid = false;
-    cpu.data_write_valid = false;
+    cpu.invalidate_caches();
     }
 
     Ok(ExecFlow::Next)
@@ -69,9 +63,7 @@ pub fn csrrwi(cpu: &mut Cpu, rd: Reg, uimm: u8, csr: u16) -> ExecResult {
     let old = cpu.csr.read(csr)?;
 
     cpu.csr.write(csr, uimm as u64)?;
-    cpu.fetch_page_valid = false;
-    cpu.data_read_valid = false;
-    cpu.data_write_valid = false;
+    cpu.invalidate_caches();
 
     cpu.regs.write(rd, old);
 
@@ -88,9 +80,7 @@ pub fn csrrsi(cpu: &mut Cpu, rd: Reg, uimm: u8, csr: u16) -> ExecResult {
 
     if uimm != 0 {
         cpu.csr.write(csr, old | uimm as u64)?;
-        cpu.fetch_page_valid = false;
-    cpu.data_read_valid = false;
-    cpu.data_write_valid = false;
+        cpu.invalidate_caches();
     }
 
     Ok(ExecFlow::Next)
@@ -106,9 +96,7 @@ pub fn csrrci(cpu: &mut Cpu, rd: Reg, uimm: u8, csr: u16) -> ExecResult {
 
     if uimm != 0 {
         cpu.csr.write(csr, old & !(uimm as u64))?;
-        cpu.fetch_page_valid = false;
-    cpu.data_read_valid = false;
-    cpu.data_write_valid = false;
+        cpu.invalidate_caches();
     }
 
     Ok(ExecFlow::Next)

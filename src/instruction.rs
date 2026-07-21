@@ -210,3 +210,24 @@ pub enum Instruction {
 
     Undefined { raw: u32 },
 }
+
+impl Instruction {
+    /// Returns true if this instruction changes control flow (branches,
+    /// jumps, system instructions, CSR instructions). Basic block
+    /// boundaries are placed at these instructions.
+    pub fn is_control_flow(&self) -> bool {
+        matches!(self,
+            Self::Beq{..} | Self::Bne{..} |
+            Self::Blt{..} | Self::Bge{..} |
+            Self::Bltu{..} | Self::Bgeu{..} |
+            Self::Jal{..} | Self::Jalr{..} |
+            Self::Ecall | Self::Ebreak |
+            Self::Mret | Self::Sret |
+            Self::Wfi | Self::SfenceVma{..} |
+            Self::Fence{..} | Self::FenceI |
+            Self::Csrrw{..} | Self::Csrrs{..} |
+            Self::Csrrc{..} | Self::Csrrwi{..} |
+            Self::Csrrsi{..} | Self::Csrrci{..}
+        )
+    }
+}

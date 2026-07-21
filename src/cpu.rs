@@ -7,9 +7,8 @@ pub mod memory;
 pub mod register;
 
 use crate::{
-    cpu::{bus::Bus, csr::Csr, decoder_cache::DecodeEntry},
+    cpu::{bus::Bus, csr::Csr, decoder_cache::{DecodeEntry, BasicBlock, MAX_BLOCK_SIZE}},
     decode::decode,
-    devices::Device,
     mmu::{Mmu, tlb::Tlb, access_type::AccessType},
     trap::Trap,
 };
@@ -81,6 +80,16 @@ pub struct Cpu {
     pub data_write_pa: u64,
     pub data_write_va: u64,
     pub data_write_valid: bool,
+
+    // ── Basic block cache ──────────────────────────────────────────
+    //
+    // Stores pre-decoded sequences of instructions (basic blocks).
+    // On a hit, the entire block executes in a tight loop without
+    // per-instruction fetch, decode, or cache lookup. Invalidated
+    // via `block_gen` — any translation-changing event increments
+    // the generation, making all cached blocks stale.
+    pub block_gen: u64,
+    pub block_cache: Box<[BasicBlock]>,
 }
 
 impl Cpu {
@@ -110,7 +119,19 @@ impl Cpu {
             data_write_pa: 0,
             data_write_va: 0,
             data_write_valid: false,
+            block_gen: 0,
+            block_cache: vec![BasicBlock::default(); 256].into_boxed_slice(),
         }
+    }
+
+    /// Invalidate all translation caches (fetch page, data page, block
+    /// cache). Called on any event that changes translation or
+    /// privilege mode: traps, mret, sret, sfence_vma, CSR writes.
+    pub fn invalidate_caches(&mut self) {
+        self.fetch_page_valid = false;
+        self.data_read_valid = false;
+        self.data_write_valid = false;
+        self.block_gen = self.block_gen.wrapping_add(1);
     }
 
     fn fetch(&mut self) -> Result<u32, Trap> {
@@ -175,39 +196,74 @@ impl Cpu {
         }
     }
 
-    /// Run up to `count` instructions in a tight loop.
+    /// Build a basic block starting at `self.pc`. Fetches and decodes
+    /// sequential instructions until a control flow instruction or page
+    /// boundary, storing them in the block cache. If the first fetch
+    /// fails (page fault), handles the trap and returns false.
+    fn build_block(&mut self) -> bool {
+        let block_index = ((self.pc >> 2) as usize) & 0xFF;
+        let start_pc = self.pc;
+        let start_page = start_pc >> 12;
+        let mut count = 0u8;
+        let mut offset = 0u64;
+
+        while count < MAX_BLOCK_SIZE as u8 {
+            let pc = start_pc.wrapping_add(offset);
+            if count > 0 && (pc >> 12) != start_page {
+                break;
+            }
+
+            let saved_pc = self.pc;
+            self.pc = pc;
+            let raw = match self.fetch() {
+                Ok(inst) => inst,
+                Err(trap) => {
+                    self.pc = saved_pc;
+                    if count == 0 {
+                        self.invalidate_caches();
+                        let _ = self.handle_trap(trap);
+                    }
+                    break;
+                }
+            };
+            self.pc = saved_pc;
+
+            let decoded = decode(raw);
+            let length = decoded.length;
+
+            self.block_cache[block_index].decoded[count as usize] = decoded;
+            self.block_cache[block_index].lengths[count as usize] = length;
+            count += 1;
+            offset += length as u64;
+
+            if decoded.instruction.is_control_flow() {
+                break;
+            }
+        }
+
+        if count > 0 {
+            let block = &mut self.block_cache[block_index];
+            block.pc = start_pc;
+            block.generation = self.block_gen;
+            block.count = count;
+        }
+
+        count > 0
+    }
+
+    /// Run up to `count` instructions using the basic block cache.
     ///
-    /// This eliminates the per-instruction overhead of the main loop:
-    ///   - No `?` on step() (saves 11% = Result::branch)
-    ///   - No main_clock increment (saves loop overhead)
-    ///   - No WFI check on every instruction (only on WFI)
-    ///   - No UART input check on every instruction
-    ///
-    /// Returns the number of instructions actually executed. Stops early
-    /// on trap (returns count - remaining) or WFI (returns count - remaining).
+    /// On a block cache hit, the entire block executes in a tight loop
+    /// without per-instruction fetch, decode, or cache lookup — just
+    /// execute + PC update. Interrupts are checked at block boundaries,
+    /// not per-instruction (delay < 1μs at 30 MIPS).
     pub fn run_batch(&mut self, count: u64) -> u64 {
-        // Sync PLIC state to mip before running. Interrupts may have
-        // been triggered between batches (e.g. UART RX from keyboard
-        // input). Without this, the guest stays stuck in WFI because
-        // the PLIC evaluation inside the loop only runs every 1024
-        // clocks — and if the guest is in WFI, the loop returns on the
-        // first iteration before the PLIC is ever evaluated.
         let (meip, seip) = self.bus.plic.evaluate_interrupt();
         if meip { self.csr.mip |= 1 << 11; } else { self.csr.mip &= !(1 << 11); }
         if seip { self.csr.mip |= 1 << 9; } else { self.csr.mip &= !(1 << 9); }
 
-        for i in 0..count {
-            self.clock = self.clock.wrapping_add(1);
-
-            // PLIC evaluation every 1024 clocks. mtime is advanced
-            // by the main loop using wall-clock time (see main.rs).
-            if self.clock & 0x3FF == 0 {
-                let (meip, seip) = self.bus.plic.evaluate_interrupt();
-                if meip { self.csr.mip |= 1 << 11; } else { self.csr.mip &= !(1 << 11); }
-                if seip { self.csr.mip |= 1 << 9; } else { self.csr.mip &= !(1 << 9); }
-            }
-
-            // Interrupt check
+        let mut i = 0u64;
+        while i < count {
             if (self.csr.mip & self.csr.mie) != 0 {
                 self.wfi = false;
                 if let Some(cause) = self.pending_interrupt() {
@@ -217,55 +273,54 @@ impl Cpu {
                     continue;
                 }
             }
-
-            // WFI check — only return if still sleeping
             if self.wfi {
                 return i;
             }
 
-            // Decode cache
-            let cache_index = ((self.pc >> 2) as usize) & 0x3FFF;
-            let (decoded, length) = if self.decode_cache[cache_index].valid && self.decode_cache[cache_index].pc == self.pc {
-                let entry = &self.decode_cache[cache_index];
-                (entry.decoded, entry.length)
-            } else {
-                let raw = match self.fetch() {
-                    Ok(inst) => inst,
-                    Err(trap) => {
-                        self.fetch_page_valid = false;
-                        self.data_read_valid = false;
-                        self.data_write_valid = false;
-                        if self.handle_trap(trap).is_err() {
-                            return i;
-                        }
-                        continue;
-                    }
-                };
-                let decoded = decode(raw);
-                let length = decoded.length;
-                self.decode_cache[cache_index] = DecodeEntry { pc: self.pc, valid: true, decoded, length };
-                (decoded, length)
+            let block_index = ((self.pc >> 2) as usize) & 0xFF;
+            let (b_pc, b_gen, b_count) = {
+                let b = &self.block_cache[block_index];
+                (b.pc, b.generation, b.count)
             };
 
-            self.current_instruction_length = length;
+            if b_gen == self.block_gen && b_pc == self.pc && b_count > 0 {
+                let n = b_count as usize;
+                for j in 0..n {
+                    self.clock = self.clock.wrapping_add(1);
+                    if self.clock & 0x3FF == 0 {
+                        let (meip, seip) = self.bus.plic.evaluate_interrupt();
+                        if meip { self.csr.mip |= 1 << 11; } else { self.csr.mip &= !(1 << 11); }
+                        if seip { self.csr.mip |= 1 << 9; } else { self.csr.mip &= !(1 << 9); }
+                    }
 
-            match execute::execute(decoded, self) {
-                Ok(flow) => match flow {
-                    ExecFlow::Next => {
-                        self.pc = self.pc.wrapping_add(length as u64);
-                    }
-                    ExecFlow::Jump(addr) => {
-                        self.pc = addr;
-                    }
-                },
-                Err(trap) => {
-                    self.fetch_page_valid = false;
-                    self.data_read_valid = false;
-                    self.data_write_valid = false;
-                    if self.handle_trap(trap).is_err() {
-                        return i;
+                    let (decoded, length) = {
+                        let b = &self.block_cache[block_index];
+                        (b.decoded[j], b.lengths[j])
+                    };
+                    self.current_instruction_length = length;
+
+                    match execute::execute(decoded, self) {
+                        Ok(ExecFlow::Next) => {
+                            self.pc = self.pc.wrapping_add(length as u64);
+                            i += 1;
+                        }
+                        Ok(ExecFlow::Jump(addr)) => {
+                            self.pc = addr;
+                            i += 1;
+                            break;
+                        }
+                        Err(trap) => {
+                            self.invalidate_caches();
+                            if self.handle_trap(trap).is_err() {
+                                return i + 1;
+                            }
+                            i += 1;
+                            break;
+                        }
                     }
                 }
+            } else {
+                self.build_block();
             }
         }
         count
@@ -358,9 +413,7 @@ impl Cpu {
 
     pub fn handle_interrupt(&mut self, cause: u64) -> Result<(), Trap> {
         // Invalidate fetch cache — privilege/PC change
-        self.fetch_page_valid = false;
-        self.data_read_valid = false;
-        self.data_write_valid = false;
+        self.invalidate_caches();
 
         // delegate to S-mode if enabled and we're not already in M-mode.
         let delegated = self.privilege_mode != PrivilegeMode::Machine && self.csr.is_interrupt_delegated(cause);
@@ -501,9 +554,7 @@ impl Cpu {
 impl Cpu {
     pub fn handle_trap(&mut self, trap: Trap) -> Result<(), Trap> {
         // Invalidate fetch cache — privilege/PC change
-        self.fetch_page_valid = false;
-        self.data_read_valid = false;
-        self.data_write_valid = false;
+        self.invalidate_caches();
 
         let cause = Self::exception_cause(&trap);
 

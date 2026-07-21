@@ -52,9 +52,7 @@ pub fn mret(cpu: &mut Cpu) -> ExecResult {
     cpu.csr.mstatus &= !MSTATUS_MPP_MASK;
 
     // Invalidate fetch cache — privilege/PC change
-    cpu.fetch_page_valid = false;
-    cpu.data_read_valid = false;
-    cpu.data_write_valid = false;
+    cpu.invalidate_caches();
 
     Ok(ExecFlow::Jump(cpu.csr.mepc))
 }
@@ -78,9 +76,7 @@ pub fn sret(cpu: &mut Cpu) -> ExecResult {
     cpu.csr.mstatus &= !(1 << 8);
 
     // Invalidate fetch cache — privilege/PC change
-    cpu.fetch_page_valid = false;
-    cpu.data_read_valid = false;
-    cpu.data_write_valid = false;
+    cpu.invalidate_caches();
 
     Ok(ExecFlow::Jump(cpu.csr.sepc))
 }
@@ -104,9 +100,7 @@ pub fn sfence_vma(cpu: &mut Cpu, rs1: Reg, rs2: Reg) -> ExecResult {
     }
 
     // Invalidate fetch cache
-    cpu.fetch_page_valid = false;
-    cpu.data_read_valid = false;
-    cpu.data_write_valid = false;
+    cpu.invalidate_caches();
 
     Ok(ExecFlow::Next)
 }
